@@ -4,13 +4,21 @@ import tensorflow as tf
 import time
 from datetime import datetime
 import os
+from scipy.io import wavfile
 
 def _bytes_feature(value):                                                      
-  """Returns a bytes_list from a string / byte."""                              
+  """Returns a bytes_list from a string / byte. Best method"""                              
   if isinstance(value, type(tf.constant(0))):                                   
     value = value.numpy() # BytesList won't unpack a string from an EagerTensor.
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-  # ~ return tf.train.Feature(int64_list=tf.train.Int64List(value=audio.numpy().astype(int).flatten().tolist()))   
+  
+def _int_feature(value):                                                      
+  
+  return tf.train.Feature(int64_list=tf.train.Int64List(value=value.tolist())) 
+  
+def _float_feature(value):                                                      
+  
+  return tf.train.Feature(float_list=tf.train.FloatList(value=audio.numpy().flatten().tolist()))  
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="input path", type=str)
@@ -31,11 +39,18 @@ with tf.io.TFRecordWriter(out_filename) as writer:
         posix_date = time.mktime(date.timetuple())      
 
         raw_audio = tf.io.read_file(in_filename+'/'+df.iloc[i,4])
-        audio = raw_audio
+        
+        """no processing needed for bytesList format (takes string tensor)"""
+        audio = raw_audio 
+        
+        """decode_wav to get float32 tensor"""
         # ~ audio, sample_rate = tf.audio.decode_wav(
                     # ~ raw_audio,
                     # ~ desired_channels=1,  # mono
-                    # ~ desired_samples=48000 * 1)
+                    # ~ desired_samples=48000 * 1) 
+        
+        """wavefile.read to get int tensor"""
+        # ~ sample_rate, audio = wavfile.read(in_filename+'/'+df.iloc[i,4])
         
         datetime_feature = tf.train.Feature(int64_list=tf.train.Int64List(value=[int(posix_date)])) 
         temperature = tf.train.Feature(int64_list=tf.train.Int64List(value=[df.iloc[i,2]]))
@@ -45,6 +60,7 @@ with tf.io.TFRecordWriter(out_filename) as writer:
                    'temperature': temperature,
                    'humidity': humidity,
                    'audio': _bytes_feature(audio)}
+                   
         example = tf.train.Example(features=tf.train.Features(feature=mapping))
         writer.write(example.SerializeToString())
         
