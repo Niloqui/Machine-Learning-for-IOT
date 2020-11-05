@@ -45,7 +45,7 @@ p = pyaudio.PyAudio()  # Create an interface to PortAudio
 microphone_name = "USB Microphone: Audio"
 dev_index = -1 # USB microphone index
 
-performances = pd.DataFrame(columns=['Record','Resample','Stft','Mfccs','Preprocessing','TOTAL'])
+performances = pd.DataFrame(columns=['Record','Resample','Stft','Mfccs','Preprocessing','Saving','TOTAL'])
 
 # Searching the microphone index among all devices
 for i in range(p.get_device_count()):
@@ -64,6 +64,7 @@ stream = p.open(format = sample_format,
 
 output = []
 for n in range(number_of_sample):
+    #### Record
     start = t.time()
     print('Recording audio', str(n))
     stream.start_stream()
@@ -79,9 +80,8 @@ for n in range(number_of_sample):
     print('Finished recording')
     
     t_record = t.time()
-    #print(f"Time needed to record: {round((t_record - start)*1000, 2)} ms")
     
-    ######################### MFCC
+    #### Resample
     frames = b''.join(frames)
     frames_io = io.BytesIO(frames)
     frames_io_buf = frames_io.getbuffer()
@@ -92,12 +92,13 @@ for n in range(number_of_sample):
     tf_audio = 2 * tf_audio / 65535 - 1
     
     t_resample = t.time()
-    #print(f"Time needed to resample: {round((t_resample - t_record)*1000, 2)} ms")
     
+    #### Stfs
     stft = tf.signal.stft(tf_audio, frame_length=frame_length, frame_step=frame_step, fft_length=frame_length)
     spectrogram = tf.abs(stft)
     t_stft = t.time()
     
+    #### Mfccs
     num_spectrogram_bins = spectrogram.shape[-1]
     linear_to_mel_weight_matrix = \
         tf.signal.linear_to_mel_weight_matrix(40, num_spectrogram_bins, 16000, 20, 4000)
@@ -108,28 +109,31 @@ for n in range(number_of_sample):
     
     mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)[..., :10]
     
+    t_mfccs = t.time()
+    
+    #### Saving the output
     f_res = f'{output_folder}/mfccs{n}.bin'
     mfccs_ser = tf.io.serialize_tensor(mfccs)
     tf.io.write_file(f_res, mfccs_ser)
     
-    t_mfccs = t.time()
-    #print(f"Time needed to mfccs: {round((t_conversion - t_resample)*1000, 2)} ms")
+    t_savefile = t.time()
     
-    #print(f"Time needed for prepocessing: {round((t_conversion - t_record)*1000, 2)} ms")
-    #print(f"Time needed for everything: {round((t_conversion - start)*1000, 2)} ms", end="\n\n")
-    performances.loc[n] = [(t_record - start)*1000,
-                        (t_resample - t_record)*1000,
-                        (t_stft - t_resample)*1000,
-                        (t_mfccs - t_stft)*1000,
-                        (t_mfccs - t_record)*1000,
-                        (t_mfccs - start)*1000]
-
+    #### Record
+    # ['Record','Resample','Stft','Mfccs','Preprocessing','TOTAL'])
+    performances.loc[n] = [(t_record - start) * 1000,
+                        (t_resample - t_record) * 1000,
+                        (t_stft - t_resample) * 1000,
+                        (t_mfccs - t_stft) * 1000,
+                        (t_mfccs - t_record) * 1000,
+                        (t_savefile - t_mfccs) * 1000,
+                        (t_savefile - start) * 1000]
 
 # Terminate the PortAudio interface
 stream.close()
 p.terminate()
 
 print(performances.round(2))
+
 
 
 print("End.")
