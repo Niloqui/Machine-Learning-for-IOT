@@ -1,10 +1,13 @@
 import subprocess
 
-# subprocess.Popen(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
-# subprocess.Popen(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+performance = ['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor']
+powersave = ['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor']
 
-#subprocess.check_call(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
-subprocess.check_call(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+# subprocess.Popen(powersave)
+# subprocess.Popen(performance)
+
+#subprocess.check_call(performance)
+subprocess.check_call(powersave)
 
 import os
 import argparse
@@ -29,7 +32,6 @@ if not os.path.isdir(output_folder):
     os.mkdir(output_folder)
 else:
     os.system(f"rm -r {output_folder}")
-    #os.mkdir(output_folder)
     #raise NameError('output folder already exists, choose another folder')
 
 sample_format = pyaudio.paInt16 # Number of bits per sample
@@ -72,7 +74,6 @@ stream.stop_stream()
 
 performances = pd.DataFrame(columns=['Record','Resample','STFT','MFCCs','Saving','Preprocessing','TOTAL'])
 linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(40, 321, 16000, 20, 4000)
-
 subprocess.check_call(['sudo', 'sh', '-c', 'echo 1 > /sys/devices/system/cpu/cpufreq/policy0/stats/reset'])
 output = []
 for n in range(number_of_sample):
@@ -81,13 +82,13 @@ for n in range(number_of_sample):
     #### Record
     #print('Recording audio', str(n))
     stream.start_stream()
+    
+    subprocess.Popen(powersave)
     frames = []
     
-    for i in chunk_readings:
-        if i == chunk_readings[-1]:
-            subprocess.Popen(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
-        data = stream.read(chunk)
-        frames.append(data)
+    frames.append(stream.read(chunk*4))
+    subprocess.Popen(performance)
+    frames.append(stream.read(chunk))
     
     stream.stop_stream()
     #print('Finished recording')
@@ -97,7 +98,7 @@ for n in range(number_of_sample):
     #### Resample
     frame = np.frombuffer(io.BytesIO(b''.join(frames)).getbuffer(), dtype=np.uint16)
     audio = signal.resample_poly(frame, 1, downsample)
-    tf_audio = tf.convert_to_tensor(audio, dtype=tf.float32)# / 32767 - 1
+    tf_audio = tf.convert_to_tensor(audio, dtype=tf.float32) / 32767 - 1
     
     t_resample = t.time()
     
@@ -115,14 +116,14 @@ for n in range(number_of_sample):
     t_mfccs = t.time()
     
     #### Saving the output
+    #subprocess.Popen(powersave)
+    
     f_res = f'{output_folder}/mfccs{n}.bin'
     mfccs_ser = tf.io.serialize_tensor(mfccs)
     tf.io.write_file(f_res, mfccs_ser)
     
     t_savefile = t.time()
     print(t_savefile - start)
-    
-    subprocess.Popen(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
     
     #### Record
     # ['Record','Resample','Stft','Mfccs','Preprocessing','TOTAL'])
@@ -134,7 +135,9 @@ for n in range(number_of_sample):
                         (t_savefile - t_mfccs) * 1000,
                         (t_savefile - t_record) * 1000,
                         (t_savefile - start) * 1000]
-    
+
+
+subprocess.Popen(powersave)
 
 cpu_usage = subprocess.check_output(['cat', '/sys/devices/system/cpu/cpufreq/policy0/stats/time_in_state'])
 cpu_usage = str(cpu_usage).replace("\\n", "\n").replace("b'", "").replace("'", "")
