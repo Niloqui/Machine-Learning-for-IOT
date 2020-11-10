@@ -1,3 +1,11 @@
+import subprocess
+
+# subprocess.Popen(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+# subprocess.Popen(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+
+#subprocess.check_call(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+subprocess.check_call(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
+
 import os
 import argparse
 import pyaudio
@@ -27,25 +35,24 @@ else:
 sample_format = pyaudio.paInt16 # Number of bits per sample
 sample_rate = 48000 # Number of samples per second
 resample_rate = 16000
+downsample = int(sample_rate / resample_rate)
 
-chunk = int(sample_rate / 2) # Record in chunks of 1024 samples
+chunk = int(sample_rate / 5) # Record in chunks of 1024 samples
 channels = 1
 seconds = 1
 
-ffs = range(0, int(sample_rate * seconds / chunk))
+chunk_readings = range(int(sample_rate * seconds / chunk))
 
 l = 0.040
-frame_length = int(sample_rate * l)
+frame_length = int(resample_rate * l)
 
 s = 0.020
-frame_step = int(sample_rate * s)
+frame_step = int(resample_rate * s)
 
 p = pyaudio.PyAudio()  # Create an interface to PortAudio
 
 microphone_name = "USB Microphone: Audio"
 dev_index = -1 # USB microphone index
-
-performances = pd.DataFrame(columns=['Record','Resample','Stft','Mfccs','Preprocessing','Saving','TOTAL'])
 
 # Searching the microphone index among all devices
 for i in range(p.get_device_count()):
@@ -61,52 +68,48 @@ stream = p.open(format = sample_format,
                 frames_per_buffer = chunk,
                 input_device_index = dev_index,
                 input = True)
+stream.stop_stream()
 
+performances = pd.DataFrame(columns=['Record','Resample','STFT','MFCCs','Saving','Preprocessing','TOTAL'])
+linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(40, 321, 16000, 20, 4000)
+
+subprocess.check_call(['sudo', 'sh', '-c', 'echo 1 > /sys/devices/system/cpu/cpufreq/policy0/stats/reset'])
 output = []
 for n in range(number_of_sample):
-    #### Record
     start = t.time()
-    print('Recording audio', str(n))
-    stream.start_stream()
-    frames = [] # Initialize array to store frames
     
-    # Store data in chunks for 1 seconds
-    for i in ffs:
+    #### Record
+    #print('Recording audio', str(n))
+    stream.start_stream()
+    frames = []
+    
+    for i in chunk_readings:
+        if i == chunk_readings[-1]:
+            subprocess.Popen(['sudo', 'sh', '-c', 'echo performance > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
         data = stream.read(chunk)
         frames.append(data)
     
-    # Stop and close the stream
     stream.stop_stream()
-    print('Finished recording')
+    #print('Finished recording')
     
     t_record = t.time()
     
     #### Resample
-    frames = b''.join(frames)
-    frames_io = io.BytesIO(frames)
-    frames_io_buf = frames_io.getbuffer()
-    frame = np.frombuffer(frames_io_buf, dtype=np.uint16)
-    
-    audio = signal.resample_poly(frame, resample_rate, sample_rate)
-    tf_audio = tf.convert_to_tensor(audio, dtype=tf.float32)
-    tf_audio = 2 * tf_audio / 65535 - 1
+    frame = np.frombuffer(io.BytesIO(b''.join(frames)).getbuffer(), dtype=np.uint16)
+    audio = signal.resample_poly(frame, 1, downsample)
+    tf_audio = tf.convert_to_tensor(audio, dtype=tf.float32)# / 32767 - 1
     
     t_resample = t.time()
     
-    #### Stfs
+    #### STFT
     stft = tf.signal.stft(tf_audio, frame_length=frame_length, frame_step=frame_step, fft_length=frame_length)
     spectrogram = tf.abs(stft)
+    
     t_stft = t.time()
     
-    #### Mfccs
-    num_spectrogram_bins = spectrogram.shape[-1]
-    linear_to_mel_weight_matrix = \
-        tf.signal.linear_to_mel_weight_matrix(40, num_spectrogram_bins, 16000, 20, 4000)
+    #### MFCCs
     mel_spectrogram = tf.tensordot(spectrogram, linear_to_mel_weight_matrix, 1)
-    
-    mel_spectrogram.set_shape( spectrogram.shape[:-1].concatenate(linear_to_mel_weight_matrix.shape[-1:]) )
     log_mel_spectrogram = tf.math.log(mel_spectrogram + 1e-6)
-    
     mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)[..., :10]
     
     t_mfccs = t.time()
@@ -117,23 +120,28 @@ for n in range(number_of_sample):
     tf.io.write_file(f_res, mfccs_ser)
     
     t_savefile = t.time()
+    print(t_savefile - start)
+    
+    subprocess.Popen(['sudo', 'sh', '-c', 'echo powersave > /sys/devices/system/cpu/cpufreq/policy0/scaling_governor'])
     
     #### Record
     # ['Record','Resample','Stft','Mfccs','Preprocessing','TOTAL'])
+    
     performances.loc[n] = [(t_record - start) * 1000,
                         (t_resample - t_record) * 1000,
                         (t_stft - t_resample) * 1000,
                         (t_mfccs - t_stft) * 1000,
-                        (t_mfccs - t_record) * 1000,
                         (t_savefile - t_mfccs) * 1000,
+                        (t_savefile - t_record) * 1000,
                         (t_savefile - start) * 1000]
+    
+
+cpu_usage = subprocess.check_output(['cat', '/sys/devices/system/cpu/cpufreq/policy0/stats/time_in_state'])
+cpu_usage = str(cpu_usage).replace("\\n", "\n").replace("b'", "").replace("'", "")
 
 # Terminate the PortAudio interface
 stream.close()
 p.terminate()
 
+print(cpu_usage)
 print(performances.round(2))
-
-
-
-print("End.")
