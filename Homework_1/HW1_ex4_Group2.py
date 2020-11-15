@@ -19,8 +19,8 @@ def _bytes_feature(value):
   #return tf.train.Feature(float_list=tf.train.FloatList(value=audio.numpy().flatten().tolist()))  
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input", help="input path", default=".", type=str)
-parser.add_argument("--output", help="output file", default="output", type=str)
+parser.add_argument("--input", help="input path", type=str, default='./raw_data')
+parser.add_argument("--output", help="output file", type=str, default='.HW1_ex4_Group2_output.tfrecord')
 parser.add_argument('-v',nargs='?', default=False, const=True)
 args = parser.parse_args()
 
@@ -33,8 +33,8 @@ df = pd.read_csv(in_filename+'/samples.csv', header = None)
 with tf.io.TFRecordWriter(out_filename) as writer:
     for i in range(df.iloc[:,0].size):
         raw_date = ",".join([df.iloc[i,0],df.iloc[i,1]])
-        date = datetime.strptime(raw_date, '%d/%m/%y,%H:%M:%S')
-        posix_date = time.mktime(date.timetuple())      
+        date = datetime.strptime(raw_date, '%d/%m/%Y,%H:%M:%S')
+        posix_date = time.mktime(date.timetuple())
 
         raw_audio = tf.io.read_file(in_filename+'/'+df.iloc[i,4])
         
@@ -62,6 +62,5 @@ with tf.io.TFRecordWriter(out_filename) as writer:
         example = tf.train.Example(features=tf.train.Features(feature=mapping))
         writer.write(example.SerializeToString())
         
-if verbose == True:     
+if verbose:
     print(os.path.getsize(out_filename))
-            
