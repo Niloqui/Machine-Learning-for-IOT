@@ -19,8 +19,8 @@ def _bytes_feature(value):
   #return tf.train.Feature(float_list=tf.train.FloatList(value=audio.numpy().flatten().tolist()))  
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input", help="input path", type=str)
-parser.add_argument("--output", help="output file", type=str)
+parser.add_argument("--input", help="input path", default=".", type=str)
+parser.add_argument("--output", help="output file", default="output", type=str)
 parser.add_argument('-v',nargs='?', default=False, const=True)
 args = parser.parse_args()
 
