@@ -12,13 +12,11 @@ def _bytes_feature(value):
     value = value.numpy() # BytesList won't unpack a string from an EagerTensor.
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
   
-def _int_feature(value):                                                      
+#def _int_feature(value):                                                      
+  #return tf.train.Feature(int64_list=tf.train.Int64List(value=value.tolist())) 
   
-  return tf.train.Feature(int64_list=tf.train.Int64List(value=value.tolist())) 
-  
-def _float_feature(value):                                                      
-  
-  return tf.train.Feature(float_list=tf.train.FloatList(value=audio.numpy().flatten().tolist()))  
+#def _float_feature(value):                                                      
+  #return tf.train.Feature(float_list=tf.train.FloatList(value=audio.numpy().flatten().tolist()))  
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="input path", type=str)
