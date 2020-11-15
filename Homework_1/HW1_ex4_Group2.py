@@ -22,7 +22,7 @@ def _float_feature(value):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="input path", type=str)
-parser.add_argument("--output", help="output path", type=str)
+parser.add_argument("--output", help="output file", type=str)
 parser.add_argument('-v',nargs='?', default=False, const=True)
 args = parser.parse_args()
 
