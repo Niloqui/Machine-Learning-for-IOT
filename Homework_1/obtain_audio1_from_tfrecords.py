@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-raw_dataset = tf.data.TFRecordDataset("output2")
+raw_dataset = tf.data.TFRecordDataset("output") #output is the name you gave to the tfrecords file 
 
 def read_tfrecord(serialized_example):
   feature_description = {
