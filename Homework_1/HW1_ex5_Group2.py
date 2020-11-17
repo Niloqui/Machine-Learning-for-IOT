@@ -44,7 +44,7 @@ sample_rate = 48000 # Number of samples per second after recording
 resample_rate = 16000 # Number of samples per second after resampling
 downsample = int(sample_rate / resample_rate) # Ratio needed for resampling
 
-chunk = int(sample_rate / 5) # Number of chunks, needed while reading
+chunk = int(sample_rate / 10) # Number of chunks, needed while reading
 channels = 1 # Mono
 # seconds = 1
 
