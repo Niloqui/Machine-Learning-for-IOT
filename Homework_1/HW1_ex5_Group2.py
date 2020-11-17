@@ -44,7 +44,8 @@ sample_rate = 48000 # Number of samples per second after recording
 resample_rate = 16000 # Number of samples per second after resampling
 downsample = int(sample_rate / resample_rate) # Ratio needed for resampling
 
-chunk = int(sample_rate / 10) # Number of chunks, needed while reading
+num_chunks = 10 # Number of chunks
+chunk = int(sample_rate / num_chunks) # Chunk size
 channels = 1 # Mono
 # seconds = 1
 
@@ -93,7 +94,7 @@ for n in range(number_of_sample):
     
     # Once that the stream is strarted, we can set powersaves mode
     subprocess.Popen(powersave)
-    frames = stream.read(chunk*4)
+    frames = stream.read(chunk * (num_chunks - 1))
     
     # Before reading the last chunk, we set performance mode.
     # subprocess.Popen is not instantaneous so we need to call it a bit
