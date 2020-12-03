@@ -1,9 +1,10 @@
- import argparse
+import argparse
 import numpy as np
 import os
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
+import time as t
 
 from tensorflow import convert_to_tensor, float32, tensordot
 from tensorflow import abs as tfabs
@@ -169,6 +170,9 @@ for i,model in enumerate(models):
     model.compile(optimizer='adam',loss=loss, metrics=[metric])
     model.fit(train_ds, batch_size=32, epochs=2, validation_data=val_ds,callbacks=[cp_callback])
     model.summary()
+    start = t.time()
     test_acc, test_acc2 = model.evaluate(test_ds, verbose=2)
+    end = t.time() - start
+    print(f'acc: {test_acc}, size: {os.path.getsize('./callback_test_chkp/chkp_best')} Inference Latency {end}ms')
 
 
