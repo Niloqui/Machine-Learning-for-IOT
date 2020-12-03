@@ -8,8 +8,15 @@ import tensorflow as tf
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, required=True, help='model name', default = 'mlp')
 parser.add_argument('--labels', type=int, required=True, help='model output', default = 2)
+parser.add_argument('-outdir', type=str, help='model save output', default = "./hw2ex1/")
 args = parser.parse_args()
 
+output_folder = args.outdir
+if not os.path.isdir(output_folder):
+    os.mkdir(output_folder)
+else:
+    #os.system(f"mkdir -r {output_folder}")
+    raise NameError('output folder already exists, choose another folder')
 
 seed = 42
 tf.random.set_seed(seed)
@@ -168,11 +175,60 @@ test_ds = generator.make_dataset(test_data, False)
 
 history = model.fit(train_ds, epochs=20, validation_data=val_ds)
 error = model.evaluate(test_ds)
-print()
-print("\n\n"+error)
+
+print("\n\n")
+print(error)
 #model.summary()
 
 run_model = tf.function(lambda x: model(x))
 concrete_func = run_model.get_concrete_function(tf.TensorSpec([1, 6, 2],
     tf.float32))
 model.save("saved_models", signatures=concrete_func)
+
+tf.data.experimental.save(train_ds, './th_train')
+tf.data.experimental.save(val_ds, './th_val')
+tf.data.experimental.save(test_ds, './th_test')
+
+
+tensor_specs = (tf.TensorSpec([None,6,2], dtype=tf.float32),tf.TensorSpec([None,2]))
+train_ds = tf.data.experimental.load('./th_train',tensor_specs)
+val_ds = tf.data.experimental.load('./th_val', tensor_specs)
+test_ds = tf.data.experimental.load('./th_test',tensor_specs)
+
+
+converter = tf.lite.TFLiteConverter.from_saved_model("saved_model")
+# converter = tf.lite.TFLiteConverter.from_keras_model(model)
+tflite_model = converter.convert()
+
+with open('my_model.tflite', 'wb') as f:
+    f.write(tflite_model)
+    
+interpreter = tflite.Interpreter(model_path="my_model.tflite")
+interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+print("Number of inputs:", len(input_details))
+print("Number of outputs:", len(output_details))
+print("Input name:", input_details[0]['name'])
+print("Input shape:", input_details[0]['shape'])
+
+inputs = []
+outputs = []
+
+#range could be inf it is needed to feed the model with new datas
+for i in range(10):
+
+    my_input = np.array(np.random.uniform(-1, 1, input_details[0]['shape']), dtype=np.float32)
+    print("Input:", my_input)
+    inputs.append(my_input[0, 0])
+    
+    interpreter.set_tensor(input_details[0]['index'], my_input)
+    
+    interpreter.invoke()
+    
+    my_output = interpreter.get_tensor(output_details[0]['index'])
+    print("Output:", my_output)  
+    outputs.append(my_output[0, 0])
+
+plt.plot(x_train, y_train, 'r-')
+plt.plot(inputs, outputs, 'b*')
