@@ -185,52 +185,21 @@ print(error)
 run_model = tf.function(lambda x: model(x))
 concrete_func = run_model.get_concrete_function(tf.TensorSpec([1, 6, 2],
     tf.float32))
-model.save("saved_models", signatures=concrete_func)
+model.save(output_folder, signatures=concrete_func)
 
 tf.data.experimental.save(train_ds, './th_train')
 tf.data.experimental.save(val_ds, './th_val')
 tf.data.experimental.save(test_ds, './th_test')
 
+#train_ds.element_spec 
 
-tensor_specs = (tf.TensorSpec([None,6,2], dtype=tf.float32),tf.TensorSpec([None,2]))
-train_ds = tf.data.experimental.load('./th_train',tensor_specs)
-val_ds = tf.data.experimental.load('./th_val', tensor_specs)
-test_ds = tf.data.experimental.load('./th_test',tensor_specs)
+converter = tf.lite.TFLiteConverter.from_saved_model(output_folder)
+"""WEIGHTS_ONLY QUANTIZATION"""
+converter.optimizations= [tf.lite.Optimize.DEFAULT]
+quant_model= converter.convert()
 
-
-converter = tf.lite.TFLiteConverter.from_saved_model("saved_models")
-# converter = tf.lite.TFLiteConverter.from_keras_model(model)
-tflite_model = converter.convert()
 
 with open('my_model.tflite', 'wb') as f:
-    f.write(tflite_model)
+    f.write(quant_model)
     
-interpreter = tflite.Interpreter(model_path="my_model.tflite")
-interpreter.allocate_tensors()
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-print("Number of inputs:", len(input_details))
-print("Number of outputs:", len(output_details))
-print("Input name:", input_details[0]['name'])
-print("Input shape:", input_details[0]['shape'])
 
-inputs = []
-outputs = []
-
-#range could be inf it is needed to feed the model with new datas
-for i in range(10):
-
-    my_input = np.array(np.random.uniform(-1, 1, input_details[0]['shape']), dtype=np.float32)
-    print("Input:", my_input)
-    inputs.append(my_input[0, 0])
-    
-    interpreter.set_tensor(input_details[0]['index'], my_input)
-    
-    interpreter.invoke()
-    
-    my_output = interpreter.get_tensor(output_details[0]['index'])
-    print("Output:", my_output)  
-    outputs.append(my_output[0, 0])
-
-#plt.plot(x_train, y_train, 'r-')
-plt.plot(inputs, outputs, 'b*')
