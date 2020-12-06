@@ -3,6 +3,8 @@ import numpy as np
 import os
 import pandas as pd
 import tensorflow as tf
+import tensorflow.lite as tflite
+import matplotlib.pyplot as plt
 
 
 parser = argparse.ArgumentParser()
@@ -196,7 +198,7 @@ val_ds = tf.data.experimental.load('./th_val', tensor_specs)
 test_ds = tf.data.experimental.load('./th_test',tensor_specs)
 
 
-converter = tf.lite.TFLiteConverter.from_saved_model("saved_model")
+converter = tf.lite.TFLiteConverter.from_saved_model("saved_models")
 # converter = tf.lite.TFLiteConverter.from_keras_model(model)
 tflite_model = converter.convert()
 
@@ -230,5 +232,5 @@ for i in range(10):
     print("Output:", my_output)  
     outputs.append(my_output[0, 0])
 
-plt.plot(x_train, y_train, 'r-')
+#plt.plot(x_train, y_train, 'r-')
 plt.plot(inputs, outputs, 'b*')
