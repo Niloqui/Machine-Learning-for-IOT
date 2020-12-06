@@ -25,13 +25,19 @@ if not os.path.exists('data/mini_speech_commands'):
         cache_dir='.', cache_subdir='data')
 
 data_dir = os.path.join('.','data', 'mini_speech_commands')
-filenames = tf.io.gfile.glob(str(data_dir) + '/*/*')
-filenames = tf.random.shuffle(filenames)
-n = len(filenames)
+#filenames = tf.io.gfile.glob(str(data_dir) + '/*/*')
+#filenames = tf.random.shuffle(filenames)
+#n = len(filenames)
+
 
 train_files = filenames[:int(n*0.8)]
+'''
 val_files = filenames[int(n*0.8):int(n*0.9)]
 test_files = filenames[int(n*0.9):]
+'''
+train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
+val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
+test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
 
 LABELS = np.array(tf.io.gfile.listdir(str(data_dir))) 
 LABELS = [label for label in LABELS if label != 'README.md']
@@ -153,26 +159,28 @@ DSCNN = keras.Sequential([
     keras.layers.Dense(units=len(LABELS))
 ])
 models = [MLP,CNN,DSCNN]
+mods_names = ['mlp','cnn','dscnn']
 loss = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 metric = keras.metrics.SparseCategoricalAccuracy()
-cp_callback = keras.callbacks.ModelCheckpoint(
-    #'./callback_test_chkp/chkp_{epoch:02d}',
-    './callback_test_chkp/chkp_best',
-    monitor='val_loss',
-    verbose=0, 
-    save_best_only=True,
-    save_weights_only=False,
-    mode='auto',
-    save_freq='epoch'
-)
+
 
 for i,model in enumerate(models):
     model.compile(optimizer='adam',loss=loss, metrics=[metric])
+    cp_callback = keras.callbacks.ModelCheckpoint(
+        f'./callback_test_chkp/{mods_names[i]}_chkp_best',
+        monitor='val_loss',
+        verbose=0, 
+        save_best_only=True,
+        save_weights_only=False,
+        mode='auto',
+        save_freq='epoch'
+    )
     model.fit(train_ds, batch_size=32, epochs=2, validation_data=val_ds,callbacks=[cp_callback])
     model.summary()
     start = t.time()
     test_acc, test_acc2 = model.evaluate(test_ds, verbose=2)
     end = t.time() - start
-    print(f'acc: {test_acc}, size: {os.path.getsize('./callback_test_chkp/chkp_best')} Inference Latency {end}ms')
+    msize = os.path.getsize(f'./callback_test_chkp/{mods_names[i]}_chkp_best')
+    print(f'acc: {test_acc}, size: {msize} Inference Latency {end}ms')
 
 
