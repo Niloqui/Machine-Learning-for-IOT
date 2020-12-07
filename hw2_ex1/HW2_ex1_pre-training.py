@@ -5,6 +5,7 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow.lite as tflite
 import matplotlib.pyplot as plt
+import tensorflow_model_optimization as tfmot
 
 
 parser = argparse.ArgumentParser()
@@ -185,15 +186,40 @@ print(error)
 run_model = tf.function(lambda x: model(x))
 concrete_func = run_model.get_concrete_function(tf.TensorSpec([1, 6, 2],
     tf.float32))
-model.save(output_folder, signatures=concrete_func)
+tf.keras.models.save_model(model, output_folder, signatures=concrete_func)
 
 tf.data.experimental.save(train_ds, './th_train')
 tf.data.experimental.save(val_ds, './th_val')
 tf.data.experimental.save(test_ds, './th_test')
 
+pruning_params = {'pruning_schedule':tfmot.sparsity.keras.PolynomialDecay(initial_sparsity=0.30, 
+                                                                          final_sparsity=0.8,
+                                                                          begin_step=len(train_ds)*5,
+                                                                          end_step=len(train_ds)*15)}
+prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
+
+
+model = prune_low_magnitude(model, **pruning_params)
+cp_callback = tf.keras.callbacks.ModelCheckpoint(
+        f'./pruned/dscnn_chkp_best_mfccs',
+        monitor='val_loss',
+        verbose=0, 
+        save_best_only=True,
+        save_weights_only=False,
+        mode='auto',
+        save_freq='epoch'
+    )
+callbacks = [tfmot.sparsity.keras.UpdatePruningStep(), cp_callback]
+input_shape = [32,32,32]
+model.build(input_shape)
+model.compile(optimizer='adam',loss=tf.keras.losses.MeanSquaredError(), metrics=[MultiOutputMAE()])
+model.fit(train_ds, epochs=20, validation_data=val_ds, callbacks=callbacks)
+strip_model = tfmot.sparsity.keras.strip_pruning(model)
+strip_model.save(f'./stripped/dscnn_chkp_best_mfccs')
+
 #train_ds.element_spec 
 
-converter = tf.lite.TFLiteConverter.from_saved_model(output_folder)
+converter = tf.lite.TFLiteConverter.from_keras_model(strip_model)
 """WEIGHTS_ONLY QUANTIZATION"""
 converter.optimizations= [tf.lite.Optimize.DEFAULT]
 quant_model= converter.convert()
