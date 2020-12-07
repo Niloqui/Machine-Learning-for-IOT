@@ -219,7 +219,7 @@ strip_model.save(f'./stripped/dscnn_chkp_best_mfccs')
 
 #train_ds.element_spec 
 
-converter = tf.lite.TFLiteConverter.from_keras_model(strip_model)
+converter = tf.lite.TFLiteConverter.from_saved_model('./stripped/dscnn_chkp_best_mfccs')
 """WEIGHTS_ONLY QUANTIZATION"""
 converter.optimizations= [tf.lite.Optimize.DEFAULT]
 quant_model= converter.convert()
