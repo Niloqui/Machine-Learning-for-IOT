@@ -232,3 +232,6 @@ with open('my_model_compressed.zlib', 'wb') as fp:
     tflite_compressed = zlib.compress(quant_model)
     fp.write(tflite_compressed)
 
+tfl_size=os.path.getsize("my_model.tflite")
+tflc_size=os.path.getsize("my_model_compressed.zlib")
+print(f'size of optimized model: {tfl_size/1024}kB \ncompressed: {tflc_size/1024}kB')
