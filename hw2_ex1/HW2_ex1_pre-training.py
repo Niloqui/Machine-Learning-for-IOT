@@ -6,7 +6,7 @@ import tensorflow as tf
 import tensorflow.lite as tflite
 import matplotlib.pyplot as plt
 import tensorflow_model_optimization as tfmot
-
+import zlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, required=True, help='model name', default = 'mlp')
@@ -228,4 +228,7 @@ quant_model= converter.convert()
 with open('my_model.tflite', 'wb') as f:
     f.write(quant_model)
     
+with open('my_model_compressed.zlib', 'wb') as fp:
+    tflite_compressed = zlib.compress(quant_model)
+    fp.write(tflite_compressed)
 
