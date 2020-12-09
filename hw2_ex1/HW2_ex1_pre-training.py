@@ -218,7 +218,7 @@ strip_model = tfmot.sparsity.keras.strip_pruning(model)
 strip_model.save(f'./stripped/dscnn_chkp_best_mfccs')
 
 #train_ds.element_spec 
-
+#Bisogma fare la compressione per vedere l'effetto del pruning
 converter = tf.lite.TFLiteConverter.from_saved_model('./stripped/dscnn_chkp_best_mfccs')
 """WEIGHTS_ONLY QUANTIZATION"""
 converter.optimizations= [tf.lite.Optimize.DEFAULT]
