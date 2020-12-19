@@ -178,8 +178,10 @@ strip_model = tfmot.sparsity.keras.strip_pruning(model)
 strip_model.save(f'./stripped/dscnn_chkp_best_mfccs')"""
 
 converter = tf.lite.TFLiteConverter.from_saved_model(output_folder)
-"""WEIGHTS_ONLY QUANTIZATION"""
-converter.optimizations= [tf.lite.Optimize.DEFAULT]
+
+"""WEIGHTS_ONLY QUANTIZATION: it was skipped by the system since we have to few units in our layers"""
+#converter.optimizations= [tf.lite.Optimize.DEFAULT]
+
 quant_model= converter.convert()
 
 with open(f'Group2_th_{version}.tflite', 'wb') as f:
@@ -217,4 +219,4 @@ mae_hum = sum_mae[0][1]/len(list(test_ds))
 print(f'size of optimized model: {tfl_size/1024} kB \ncompressed: {tflc_size/1024} kB')
 print("mae for temperature = ", mae_temp)
 print("mae for humidity = ", mae_hum)
-print(f'alpha = {alpha}, version = {version}')
+print(f'alpha = {alpha}, version : {version}')
