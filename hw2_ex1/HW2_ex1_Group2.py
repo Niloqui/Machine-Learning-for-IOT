@@ -135,7 +135,7 @@ class MultiOutputMAE(tf.keras.metrics.Metric):
         return
         
     def result(self):
-        result = tf.math.divide_no_nan((self.total[0]+self.total[1])/2, self.count)
+        result = tf.math.divide_no_nan(self.total, self.count)
         
         return result
 
