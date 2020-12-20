@@ -23,7 +23,6 @@ parser.add_argument('--seed', default=42, type=int, help='Set initial seed')
 args = parser.parse_args()
 
 version = str(args.version).lower()
-version = 'c'
 model_name = f'Group2_kws_{version}'
 seed = args.seed
 
