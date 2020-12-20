@@ -360,7 +360,7 @@ if version in ['a', 'b']:
     
     _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
     
-    shutil.copyfile(compressed_file, "./Group2_kws_a.tflite.zlib")
+    shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
     
 elif version in ['c']:
     pass
