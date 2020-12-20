@@ -1,32 +1,31 @@
 import argparse
 import os
+import shutil
 import time as t
 
 import numpy as np
 import pandas as pd
 import zlib
+from scipy import signal
 
 import tensorflow_model_optimization as tfmot
 import tensorflow as tf
-import tensorflow.lite as tflite
-#from tensorflow import keras
+#import tensorflow.lite as tflite
+tflite = tf.lite
 keras = tf.keras
 
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
-#parser.add_argument('--mfccs', action='store_true', help='Use MFCCs')
-parser.add_argument('--stft', action='store_true', help='Use STFT insead of MFCCs')
+parser.add_argument('--version', default='a', type=str, help='Model version')
 parser.add_argument('--seed', default=42, help='Set initial seed')
-parser.add_argument('--force-first-train', action='store_true', help='Overwrite original models')
 args = parser.parse_args()
 
-mfccs = not args.stft
-force_first_train = args.force_first_train
-
-
-### Setting seed for random number generation
+version = str(args.version).lower()
+model_name = f'Group2_kws_{version}'
 seed = args.seed
+
+# Setting seed for random number generation
 tf.random.set_seed(seed)
 np.random.seed(seed)
 
@@ -42,27 +41,29 @@ if not os.path.exists(data_dir):
 
 LABELS = np.array(tf.io.gfile.listdir(str(data_dir))) 
 LABELS = LABELS[LABELS != 'README.md']
+print(LABELS)
 
 class SignalGenerator:
-    def __init__(self, labels, sampling_rate=16000, frame_length=1920 , frame_step=960, num_mel_bins=40,
-                 lower_freq=20, upper_freq=48000, num_coefficients=10, mfccs=False):
+    def __init__(self, labels, sampling_rate=16000, resampling_rate=16000, frame_length=1920 , frame_step=960,
+                num_mel_bins=40, lower_freq=20, upper_freq=48000, num_coefficients=10, mfccs=False):
         self.frame_length = frame_length
         self.frame_step = frame_step
         self.num_mel_bins = num_mel_bins
         self.mel_inputs = [num_mel_bins, None, sampling_rate, lower_freq, upper_freq]
         self.mfccs_coeff = num_coefficients
-        self.labels=labels
-        self.sampling_rate=sampling_rate
+        self.labels = labels
+        self.sampling_rate = sampling_rate
+        self.resampling_rate = resampling_rate
         num_spectrogram_bins = (frame_length) // 2 + 1
-
+    
         if mfccs:
             self.l2mel_matrix = tf.signal.linear_to_mel_weight_matrix(
-                    self.num_mel_bins, num_spectrogram_bins, self.sampling_rate,
+                    self.num_mel_bins, num_spectrogram_bins, self.resampling_rate,
                     lower_freq, upper_freq)
             self.preprocess = self.preprocess_with_mfcc
         else:
             self.preprocess = self.preprocess_with_stft
-
+    
     def read(self, file_path):
         parts = tf.strings.split(file_path, os.path.sep)
         label = parts[-2]
@@ -71,24 +72,30 @@ class SignalGenerator:
         audio, _ = tf.audio.decode_wav(audio_binary)
         audio = tf.squeeze(audio, axis=1)
         return audio, label_id
-
+    
     def pad(self, audio):
         zero_padding = tf.zeros([self.sampling_rate] - tf.shape(audio), dtype=tf.float32)
         audio = tf.concat([audio,zero_padding],0)
+        
         audio.set_shape([self.sampling_rate])
+        
+        if self.resampling_rate == 8000:
+            audio = audio[::2]
+        
         return audio
-
+    
     def get_spectrogram(self, audio):
         tfstft = tf.signal.stft(audio, frame_length=self.frame_length, frame_step=self.frame_step,fft_length=self.frame_length)
         spectrogram = tf.abs(tfstft)
+        
         return spectrogram
-
+    
     def get_mfcc(self, spectrogram):
         mel_spectrogram = tf.tensordot(spectrogram, self.l2mel_matrix, 1)
         log_mel_spectrogram = tf.math.log(mel_spectrogram + 1e-6)
         mfccs_ = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)[..., :self.mfccs_coeff]
         return mfccs_
-
+    
     def preprocess_with_stft(self, file_path):
         audio, label = self.read(file_path)
         audio = self.pad(audio)
@@ -96,7 +103,7 @@ class SignalGenerator:
         spectrogram = tf.expand_dims(spectrogram, -1)
         spectrogram = tf.image.resize(spectrogram, [32,32])
         return spectrogram, label
-
+    
     def preprocess_with_mfcc(self, file_path):
         audio, label = self.read(file_path)
         audio = self.pad(audio)
@@ -105,75 +112,79 @@ class SignalGenerator:
         mfccs_ = self.get_mfcc(spectrogram)
         mfccs_ = tf.expand_dims(mfccs_, -1)
         return mfccs_, label
-
+    
     def make_dataset(self, files, train):
         ds = tf.data.Dataset.from_tensor_slices(files)
         ds = ds.map(self.preprocess, num_parallel_calls=4)
         ds = ds.batch(32)
         ds = ds.cache()
-
+        
         if train:
             ds = ds.shuffle(100, reshuffle_each_iteration=True)
-
+        
         return ds
 
-STFT_OPTIONS = {'frame_length': 256, 'frame_step': 128, 'mfccs': False}
-MFCC_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+
+
+########################################################################
+########################################################################
+########################################################################
+########################################################################
+VERSION_A_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
+# kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
+
+VERSION_B_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
+# kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
+
+VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
+# kws_inference.py --model 
+########################################################################
+########################################################################
+########################################################################
+########################################################################
 
-if mfccs:
-    options = MFCC_OPTIONS
-    stride = [2, 1]
-else:
-    options = STFT_OPTIONS
-    stride = [2, 2]
 
-dataset_dir = 'data/mini_speech_commands' + ("_mfccs" if mfccs else "_stft")
-if os.path.exists(dataset_dir):
-    if mfccs:
-        tensor_specs = (
-            tf.TensorSpec([None,49,10,1],dtype=tf.float32),
-            tf.TensorSpec([None,],dtype=tf.int64)
-        )
-    else: # stft
-        tensor_specs = (
-            tf.TensorSpec([None,32,32,1],dtype=tf.float32),
-            tf.TensorSpec([None,],dtype=tf.int64)
-        )
-    
-    train_ds = tf.data.experimental.load(f'{dataset_dir}/th_train', tensor_specs)
-    val_ds = tf.data.experimental.load(f'{dataset_dir}/th_val', tensor_specs)
-    test_ds = tf.data.experimental.load(f'{dataset_dir}/th_test', tensor_specs)
+stride = [2, 1]
+
+if version in ['a', 'b']:
+    options = VERSION_A_OPTIONS
+    sample_rate = 16000
+#elif version in ['b']:
+#    options = VERSION_B_OPTIONS
+#    sample_rate = 16000
+elif version in ['c']:
+    options = VERSION_C_OPTIONS
+    sample_rate = 8000
 else:
-    os.mkdir(dataset_dir)
-    train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
-    val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
-    test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
-    
-    generator = SignalGenerator(LABELS, 16000, **options)
-    train_ds = generator.make_dataset(train_files, True)
-    val_ds = generator.make_dataset(val_files, False)
-    test_ds = generator.make_dataset(test_files, False)
-    
-    tf.data.experimental.save(train_ds, f'{dataset_dir}/th_train')
-    tf.data.experimental.save(val_ds, f'{dataset_dir}/th_val')
-    tf.data.experimental.save(test_ds, f'{dataset_dir}/th_test')
+    raise ValueError("Version not existing")
+
+train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
+val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
+test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
+
+generator = SignalGenerator(LABELS, 16000, sample_rate, **options)
+train_ds = generator.make_dataset(train_files, True)
+val_ds = generator.make_dataset(val_files, False)
+test_ds = generator.make_dataset(test_files, False)
 
 
 ### Model definition
 # A modified version of the DSCNN
 model = keras.Sequential([
-        keras.layers.Conv2D(filters=256, kernel_size=[3, 3], strides=stride, use_bias=False),
+        keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=256, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=256, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
@@ -182,17 +193,16 @@ model = keras.Sequential([
         keras.layers.Dense(units=len(LABELS))
 ])
 
-width_scaling = 0.5
-original_filters = model.layers[0].filters
-model.layers[0].filters=int(width_scaling * original_filters)
-model.layers[5].filters=int(width_scaling * original_filters)
-model.layers[10].filters=int(width_scaling * original_filters)
-
 
 ### Training for the first time
-callback_folder_name = f'./callback_test_chkp/model{"_mfccs" if mfccs else "_stft"}_chkp_best'
-
-if force_first_train or not os.path.exists(callback_folder_name):
+def training_model(model, model_name, train_ds, val_ds):
+    if not os.path.exists('./callback_train_chkp'):
+        os.mkdir('./callback_train_chkp')
+    
+    callback_folder_name = f'./callback_train_chkp/{model_name}_chkp_best'
+    if not os.path.exists(callback_folder_name):
+        os.mkdir(callback_folder_name)
+    
     model.compile(
         optimizer = 'Adam',
         loss = keras.losses.SparseCategoricalCrossentropy(True),
@@ -209,77 +219,95 @@ if force_first_train or not os.path.exists(callback_folder_name):
         save_freq = 'epoch'
     )
     
-    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds,
-            callbacks=[cp_callback])
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=[cp_callback])
     model.summary()
     
-    start = t.time()
-    #test_loss, test_acc = model.evaluate(test_ds, verbose=2)
     _, test_acc = model.evaluate(test_ds, verbose=2)
-    end = t.time() - start
     
     model_path = f'{callback_folder_name}/saved_model.pb'
     msize = os.path.getsize(model_path)
-    print(f'\nacc: {test_acc}, size: {msize/1024}kB Inference Latency {end}ms\n')
-else:
-    print(f'{callback_folder_name} already exists.')
+    print(f'\nacc: {test_acc}, size: {msize/1024}kB\n')
+        
+    return callback_folder_name
+
+trained_model_path = training_model(model, model_name, train_ds, val_ds)
 
 
 ### Generating tflite models
-def generate_tflite(model_folder, output_name, mfccs=True):
-    #test_ds = tf.data.experimental.load(f'{dataset_dir}/th_test', tensor_specs)
-    if mfccs:
-        tensor_specs = (
-            tf.TensorSpec([None,49,10,1],dtype=tf.float32),
-            tf.TensorSpec([None,],dtype=tf.int64)
-        )
-    else: # stft
-        tensor_specs = (
-            tf.TensorSpec([None,32,32,1],dtype=tf.float32),
-            tf.TensorSpec([None,],dtype=tf.int64)
-        )
+def training_and_pruning_model(model, model_name, train_ds, val_ds, num_coeff):
+    if not os.path.exists('./callback_train_chkp'):
+        os.mkdir('./callback_train_chkp')
     
-    #train_ds = tf.data.experimental.load(f'{dataset_dir}/th_train', tensor_specs)
-    #val_ds = tf.data.experimental.load(f'{dataset_dir}/th_val', tensor_specs)
-    test_ds = tf.data.experimental.load(f'{dataset_dir}/th_test', tensor_specs)
+    callback_folder_name = f'./callback_train_chkp/{model_name}_chkp_best'
+    if not os.path.exists(callback_folder_name):
+        os.mkdir(callback_folder_name)
     
-    # Saving basic tflite model
+    input_shape=[32, 49, num_coeff]
+    model.build(input_shape)
+    model.compile(
+        optimizer = 'Adam',
+        loss = keras.losses.SparseCategoricalCrossentropy(True),
+        metrics = [keras.metrics.SparseCategoricalAccuracy()]
+    )
+    
+    cp_callback = keras.callbacks.ModelCheckpoint(
+        callback_folder_name,
+        monitor = 'val_sparse_categorical_accuracy',
+        verbose = 0, 
+        save_best_only = True,
+        save_weights_only = False,
+        mode = 'auto',
+        save_freq = 'epoch'
+    )
+    callbacks = [tfmot.sparsity.keras.UpdatePruningStep(), cp_callback]
+    
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=callbacks)
+    
+    stripped_model_folder = f'./stripped/{model_name}_chkp_best'
+    strip_model = tfmot.sparsity.keras.strip_pruning(model)
+    strip_model.save(stripped_model_folder)
+    strip_model.summary()
+    
+    return stripped_model_folder, callback_folder_name
+
+def generate_tflite(model_folder, output_name, test_ds):
     test_ds = test_ds.unbatch().batch(1)
+    
     tflite_dirs = 'tflite_models'
     if not os.path.exists(tflite_dirs): 
         os.mkdir(tflite_dirs)
     tflite_dirs = f'tflite_models/{output_name}'
     
-    basic_file = f'{tflite_dirs}{"_mfccs" if mfccs else "_stft"}_basic.tflite'
-    optimized_file = f'{tflite_dirs}{"_mfccs" if mfccs else "_stft"}_optimized.tflite'
-    compressed_file = f'{tflite_dirs}{"_mfccs" if mfccs else "_stft"}_compressed.tflite.zlib'
+    basic_file = f'{tflite_dirs}_basic.tflite'
+    optimized_file = f'{tflite_dirs}_optimized.tflite'
+    compressed_file = f'{tflite_dirs}_compressed.tflite.zlib'
+    
     
     # Basic file
-    if force_first_train or not os.path.exists(basic_file):
-        with open(basic_file, 'wb') as f:
-            converter = tf.lite.TFLiteConverter.from_saved_model(model_folder)
-            tflite_model = converter.convert()
-
-            f.write(tflite_model)
+    converter = tf.lite.TFLiteConverter.from_saved_model(model_folder)
+    tflite_model = converter.convert()
     
+    with open(basic_file, 'wb') as f:
+        f.write(tflite_model)
     tflb_size = os.path.getsize(basic_file)
     
+    
     # Optimized file
-    if force_first_train or not os.path.exists(optimized_file):
-        with open(optimized_file, 'wb') as f:
-            converter.optimizations = [tf.lite.Optimize.DEFAULT]
-            tflite_quant_model = converter.convert()
-
-            f.write(tflite_quant_model)
-
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    tflite_quant_model = converter.convert()
+    
+    with open(optimized_file, 'wb') as f:
+        f.write(tflite_quant_model)
+    
     tflo_size = os.path.getsize(optimized_file)
     
+    
     # Compressed file
-    if force_first_train or not os.path.exists(compressed_file):
-        with open(compressed_file, 'wb') as fp:
-            tflite_compressed = zlib.compress(tflite_quant_model)
-            fp.write(tflite_compressed)
-
+    tflite_compressed = zlib.compress(tflite_quant_model)
+    
+    with open(compressed_file, 'wb') as fp:
+        fp.write(tflite_compressed)
+            
     tflc_size=os.path.getsize(compressed_file)
     
     
@@ -289,7 +317,6 @@ def generate_tflite(model_folder, output_name, mfccs=True):
     
     # Get input and output tensors
     input_details = interpreter.get_input_details()
-    #input_shape = input_details[0]['shape']
     output_details = interpreter.get_output_details()
     
     num_corr = 0
@@ -299,7 +326,7 @@ def generate_tflite(model_folder, output_name, mfccs=True):
         interpreter.set_tensor(input_details[0]['index'], input_data)
         interpreter.invoke()
         output_data = np.argmax(interpreter.get_tensor(output_details[0]['index']))
-
+        
         if label.numpy()[0] == output_data:
             num_corr += 1
         num += 1
@@ -311,67 +338,32 @@ def generate_tflite(model_folder, output_name, mfccs=True):
     print(f'Size of optimized model: {tflo_size/1024} kB')
     print(f'Compressed: {tflc_size/1024} kB')
     print(f'Accuracy: {num_corr/num}\nTime: {end} ms\n\n')
+    
+    return basic_file, optimized_file, compressed_file
 
-generate_tflite(model_folder=callback_folder_name, output_name='not_pruned', mfccs=mfccs)
-
-
-### Pruning models
-pruning_params = {
-    'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
-        initial_sparsity = 0.3, 
-        final_sparsity = 0.8,
-        begin_step = len(train_ds) * 5,
-        end_step = len(train_ds) * 15
-    )
-}
-
-# Stripping the model
-prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
-stripped_model_folder = f'./stripped/model{"_mfccs" if mfccs else "_stft"}_chkp_best'
-
-if force_first_train or not os.path.exists(stripped_model_folder):
-    model = keras.models.load_model(callback_folder_name)
+if version in ['a', 'b']:
+    model = keras.models.load_model(trained_model_path)
+    
+    pruning_params = {
+        'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
+            initial_sparsity = 0.3, 
+            final_sparsity = 0.7,
+            begin_step = len(train_ds) * 5,
+            end_step = len(train_ds) * 15
+        )
+    }
+    prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
     model = prune_low_magnitude(model, **pruning_params)
     
-    cp_callback = keras.callbacks.ModelCheckpoint(
-        f'./callback_test_chkp/model_pruned{"_mfccs" if mfccs else "_stft"}_chkp_best',
-        monitor='val_acc',
-        verbose=0, 
-        save_best_only=True,
-        save_weights_only=False,
-        mode='auto',
-        save_freq='epoch'
-    )
-    callbacks = [tfmot.sparsity.keras.UpdatePruningStep(), cp_callback]
+    pruned_model_name = model_name + "_pruned"
+    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 8)
     
-    if mfccs:
-        input_shape=[32,49,10]
-    else:
-        input_shape=[32,32,32]
+    _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
     
-    model.build(input_shape)
-    model.compile(
-        optimizer = 'Adam',
-        loss = keras.losses.SparseCategoricalCrossentropy(True),
-        metrics = [keras.metrics.SparseCategoricalAccuracy()]
-    )
+    shutil.copyfile(compressed_file, "./Group2_kws_a.tflite.zlib")
     
-    model.fit(train_ds, epochs=20, validation_data=val_ds, callbacks=callbacks)
-    #model = keras.models.load_model(f'./pruned/dscnn_chkp_best_mfccs')
-    strip_model = tfmot.sparsity.keras.strip_pruning(model)
-    strip_model.save(stripped_model_folder)
-    strip_model.summary()
-else:
-    print(f'{stripped_model_folder} already exists.')
-
-generate_tflite(model_folder=stripped_model_folder, output_name="pruned", mfccs=mfccs)
-
-
-
-
-
-
-
+elif version in ['c']:
+    pass
 
 
 
