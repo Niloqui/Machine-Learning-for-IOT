@@ -15,6 +15,7 @@ tflite = tf.lite
 keras = tf.keras
 
 
+
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--version', default='a', type=str, help='Model version')
@@ -22,6 +23,7 @@ parser.add_argument('--seed', default=42, help='Set initial seed')
 args = parser.parse_args()
 
 version = str(args.version).lower()
+version = 'c'
 model_name = f'Group2_kws_{version}'
 seed = args.seed
 
@@ -43,8 +45,13 @@ LABELS = np.array(tf.io.gfile.listdir(str(data_dir)))
 LABELS = LABELS[LABELS != 'README.md']
 print(LABELS)
 
+def my_resample(audio, downsample):
+    audio = signal.resample_poly(audio, 1, downsample)
+    audio = tf.convert_to_tensor(audio, dtype=tf.float32)
+    return audio
+
 class SignalGenerator:
-    def __init__(self, labels, sampling_rate=16000, resampling_rate=16000, frame_length=1920 , frame_step=960,
+    def __init__(self, labels, sampling_rate=16000, resampling_rate=None, frame_length=1920 , frame_step=960,
                 num_mel_bins=40, lower_freq=20, upper_freq=48000, num_coefficients=10, mfccs=False):
         self.frame_length = frame_length
         self.frame_step = frame_step
@@ -53,10 +60,16 @@ class SignalGenerator:
         self.mfccs_coeff = num_coefficients
         self.labels = labels
         self.sampling_rate = sampling_rate
-        self.resampling_rate = resampling_rate
-        num_spectrogram_bins = (frame_length) // 2 + 1
+        
+        if resampling_rate is None:
+            self.resampling_rate = sample_rate
+        else:
+            self.resampling_rate = resampling_rate
+        
+        self.downsampling = int(self.sampling_rate / self.resampling_rate)
     
         if mfccs:
+            num_spectrogram_bins = (frame_length) // 2 + 1
             self.l2mel_matrix = tf.signal.linear_to_mel_weight_matrix(
                     self.num_mel_bins, num_spectrogram_bins, self.resampling_rate,
                     lower_freq, upper_freq)
@@ -70,17 +83,23 @@ class SignalGenerator:
         label_id = tf.argmax(label == self.labels)
         audio_binary = tf.io.read_file(file_path)
         audio, _ = tf.audio.decode_wav(audio_binary)
+        
+        if self.resampling_rate != self.sampling_rate:
+            audio = tf.numpy_function(my_resample, [audio, self.downsampling], tf.float32)
+        
         audio = tf.squeeze(audio, axis=1)
         return audio, label_id
     
     def pad(self, audio):
-        zero_padding = tf.zeros([self.sampling_rate] - tf.shape(audio), dtype=tf.float32)
+        zero_padding = tf.zeros([self.resampling_rate] - tf.shape(audio), dtype=tf.float32)
         audio = tf.concat([audio,zero_padding],0)
         
-        audio.set_shape([self.sampling_rate])
+        audio.set_shape([self.resampling_rate])
         
+        '''
         if self.resampling_rate == 8000:
             audio = audio[::2]
+        '''
         
         return audio
     
@@ -140,7 +159,7 @@ VERSION_B_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
 
 VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
-# kws_inference.py --model 
+# kws_inference.py --model Group2_kws_c_pruned_optimized.tflite --length 320 --stride 160 --mfcc --rate 8000
 ########################################################################
 ########################################################################
 ########################################################################
@@ -363,7 +382,27 @@ if version in ['a', 'b']:
     shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
     
 elif version in ['c']:
-    pass
+    model = keras.models.load_model(trained_model_path)
+    
+    '''
+    pruning_params = {
+        'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
+            initial_sparsity = 0.3, 
+            final_sparsity = 0.7,
+            begin_step = len(train_ds) * 5,
+            end_step = len(train_ds) * 15
+        )
+    }
+    prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
+    model = prune_low_magnitude(model, **pruning_params)
+    
+    pruned_model_name = model_name + "_pruned"
+    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 10)
+    '''
+    
+    _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
+    
+    shutil.copyfile(optimized_file, f"./{model_name}.tflite")
 
 
 
