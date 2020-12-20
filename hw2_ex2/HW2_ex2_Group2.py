@@ -19,7 +19,7 @@ keras = tf.keras
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--version', default='a', type=str, help='Model version')
-parser.add_argument('--seed', default=42, help='Set initial seed')
+parser.add_argument('--seed', default=42, type=int, help='Set initial seed')
 args = parser.parse_args()
 
 version = str(args.version).lower()
@@ -144,11 +144,6 @@ class SignalGenerator:
         return ds
 
 
-
-########################################################################
-########################################################################
-########################################################################
-########################################################################
 VERSION_A_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
 # kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
@@ -159,11 +154,7 @@ VERSION_B_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
 
 VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
-# kws_inference.py --model Group2_kws_c_pruned_optimized.tflite --length 320 --stride 160 --mfcc --rate 8000
-########################################################################
-########################################################################
-########################################################################
-########################################################################
+# kws_inference.py --model Group2_kws_c.tflite --length 320 --stride 160 --mfcc --rate 8000
 
 
 stride = [2, 1]
@@ -380,7 +371,6 @@ if version in ['a', 'b']:
     _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
     
     shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
-    
 elif version in ['c']:
     model = keras.models.load_model(trained_model_path)
     
@@ -403,10 +393,6 @@ elif version in ['c']:
     _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
     
     shutil.copyfile(optimized_file, f"./{model_name}.tflite")
-
-
-
-
 
 
 
