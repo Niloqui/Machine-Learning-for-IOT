@@ -134,13 +134,10 @@ class SignalGenerator:
         return ds
 
 
-VERSION_A_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+VERSION_AB_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
 # kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
-
-VERSION_B_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
-# kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
+# kws_inference.py --model Group2_kws_b.tflite.zlib --coeff 8 --mfcc
 
 VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
@@ -150,7 +147,7 @@ VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
 stride = [2, 1]
 
 if version in ['a', 'b']:
-    options = VERSION_A_OPTIONS
+    options = VERSION_AB_OPTIONS
     sample_rate = 16000
 elif version in ['c']:
     options = VERSION_C_OPTIONS
