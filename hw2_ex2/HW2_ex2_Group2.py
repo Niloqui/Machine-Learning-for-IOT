@@ -15,7 +15,6 @@ tflite = tf.lite
 keras = tf.keras
 
 
-
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--version', default='a', type=str, help='Model version')
@@ -92,14 +91,7 @@ class SignalGenerator:
     def pad(self, audio):
         zero_padding = tf.zeros([self.resampling_rate] - tf.shape(audio), dtype=tf.float32)
         audio = tf.concat([audio,zero_padding],0)
-        
         audio.set_shape([self.resampling_rate])
-        
-        '''
-        if self.resampling_rate == 8000:
-            audio = audio[::2]
-        '''
-        
         return audio
     
     def get_spectrogram(self, audio):
@@ -126,7 +118,6 @@ class SignalGenerator:
         audio, label = self.read(file_path)
         audio = self.pad(audio)
         spectrogram = self.get_spectrogram(audio)
-        #spectrogram = tf.expand_dims(spectrogram, -1)
         mfccs_ = self.get_mfcc(spectrogram)
         mfccs_ = tf.expand_dims(mfccs_, -1)
         return mfccs_, label
@@ -161,9 +152,6 @@ stride = [2, 1]
 if version in ['a', 'b']:
     options = VERSION_A_OPTIONS
     sample_rate = 16000
-#elif version in ['b']:
-#    options = VERSION_B_OPTIONS
-#    sample_rate = 16000
 elif version in ['c']:
     options = VERSION_C_OPTIONS
     sample_rate = 8000
@@ -372,22 +360,6 @@ if version in ['a', 'b']:
     shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
 elif version in ['c']:
     model = keras.models.load_model(trained_model_path)
-    
-    '''
-    pruning_params = {
-        'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
-            initial_sparsity = 0.3, 
-            final_sparsity = 0.7,
-            begin_step = len(train_ds) * 5,
-            end_step = len(train_ds) * 15
-        )
-    }
-    prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
-    model = prune_low_magnitude(model, **pruning_params)
-    
-    pruned_model_name = model_name + "_pruned"
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 10)
-    '''
     
     _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
     
