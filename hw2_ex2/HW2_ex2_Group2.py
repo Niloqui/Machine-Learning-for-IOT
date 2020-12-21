@@ -213,7 +213,7 @@ def training_model(model, model_name, train_ds, val_ds):
         save_freq = 'epoch'
     )
     
-    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=[cp_callback])
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=[cp_callback], verbose=2)
     model.summary()
     
     _, test_acc = model.evaluate(test_ds, verbose=2)
@@ -255,7 +255,7 @@ def training_and_pruning_model(model, model_name, train_ds, val_ds, num_coeff):
     )
     callbacks = [tfmot.sparsity.keras.UpdatePruningStep(), cp_callback]
     
-    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=callbacks)
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=callbacks, verbose=2)
     
     stripped_model_folder = f'./stripped/{model_name}_chkp_best'
     strip_model = tfmot.sparsity.keras.strip_pruning(model)
