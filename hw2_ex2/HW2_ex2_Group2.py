@@ -278,7 +278,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     
     # Basic file
-    converter = tf.lite.TFLiteConverter.from_saved_model(model_folder)
+    converter = tflite.TFLiteConverter.from_saved_model(model_folder)
     tflite_model = converter.convert()
     
     with open(basic_file, 'wb') as f:
@@ -287,7 +287,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     
     # Optimized file
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.optimizations = [tflite.Optimize.DEFAULT]
     tflite_quant_model = converter.convert()
     
     with open(optimized_file, 'wb') as f:
