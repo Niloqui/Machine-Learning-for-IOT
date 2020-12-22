@@ -18,7 +18,7 @@ keras = tf.keras
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--version', default='a', type=str, help='Model version')
-parser.add_argument('--seed', default=42, help='Set initial seed')
+parser.add_argument('--seed', default=42, type=int, help='Set initial seed')
 args = parser.parse_args()
 
 version = str(args.version).lower()
@@ -43,8 +43,13 @@ LABELS = np.array(tf.io.gfile.listdir(str(data_dir)))
 LABELS = LABELS[LABELS != 'README.md']
 print(LABELS)
 
+def my_resample(audio, downsample):
+    audio = signal.resample_poly(audio, 1, downsample)
+    audio = tf.convert_to_tensor(audio, dtype=tf.float32)
+    return audio
+
 class SignalGenerator:
-    def __init__(self, labels, sampling_rate=16000, resampling_rate=16000, frame_length=1920 , frame_step=960,
+    def __init__(self, labels, sampling_rate=16000, resampling_rate=None, frame_length=1920 , frame_step=960,
                 num_mel_bins=40, lower_freq=20, upper_freq=48000, num_coefficients=10, mfccs=False):
         self.frame_length = frame_length
         self.frame_step = frame_step
@@ -53,10 +58,16 @@ class SignalGenerator:
         self.mfccs_coeff = num_coefficients
         self.labels = labels
         self.sampling_rate = sampling_rate
-        self.resampling_rate = resampling_rate
-        num_spectrogram_bins = (frame_length) // 2 + 1
+        
+        if resampling_rate is None:
+            self.resampling_rate = sample_rate
+        else:
+            self.resampling_rate = resampling_rate
+        
+        self.downsampling = int(self.sampling_rate / self.resampling_rate)
     
         if mfccs:
+            num_spectrogram_bins = (frame_length) // 2 + 1
             self.l2mel_matrix = tf.signal.linear_to_mel_weight_matrix(
                     self.num_mel_bins, num_spectrogram_bins, self.resampling_rate,
                     lower_freq, upper_freq)
@@ -70,18 +81,17 @@ class SignalGenerator:
         label_id = tf.argmax(label == self.labels)
         audio_binary = tf.io.read_file(file_path)
         audio, _ = tf.audio.decode_wav(audio_binary)
+        
+        if self.resampling_rate != self.sampling_rate:
+            audio = tf.numpy_function(my_resample, [audio, self.downsampling], tf.float32)
+        
         audio = tf.squeeze(audio, axis=1)
         return audio, label_id
     
     def pad(self, audio):
-        zero_padding = tf.zeros([self.sampling_rate] - tf.shape(audio), dtype=tf.float32)
+        zero_padding = tf.zeros([self.resampling_rate] - tf.shape(audio), dtype=tf.float32)
         audio = tf.concat([audio,zero_padding],0)
-        
-        audio.set_shape([self.sampling_rate])
-        
-        if self.resampling_rate == 8000:
-            audio = audio[::2]
-        
+        audio.set_shape([self.resampling_rate])
         return audio
     
     def get_spectrogram(self, audio):
@@ -108,7 +118,6 @@ class SignalGenerator:
         audio, label = self.read(file_path)
         audio = self.pad(audio)
         spectrogram = self.get_spectrogram(audio)
-        #spectrogram = tf.expand_dims(spectrogram, -1)
         mfccs_ = self.get_mfcc(spectrogram)
         mfccs_ = tf.expand_dims(mfccs_, -1)
         return mfccs_, label
@@ -125,36 +134,21 @@ class SignalGenerator:
         return ds
 
 
-
-########################################################################
-########################################################################
-########################################################################
-########################################################################
-VERSION_A_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+VERSION_AB_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
 # kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
-
-VERSION_B_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 8}
-# kws_inference.py --model Group2_kws_a.tflite.zlib --coeff 8 --mfcc
+# kws_inference.py --model Group2_kws_b.tflite.zlib --coeff 8 --mfcc
 
 VERSION_C_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
-# kws_inference.py --model 
-########################################################################
-########################################################################
-########################################################################
-########################################################################
+# kws_inference.py --model Group2_kws_c.tflite --length 320 --stride 160 --mfcc --rate 8000
 
 
 stride = [2, 1]
 
 if version in ['a', 'b']:
-    options = VERSION_A_OPTIONS
+    options = VERSION_AB_OPTIONS
     sample_rate = 16000
-#elif version in ['b']:
-#    options = VERSION_B_OPTIONS
-#    sample_rate = 16000
 elif version in ['c']:
     options = VERSION_C_OPTIONS
     sample_rate = 8000
@@ -219,7 +213,7 @@ def training_model(model, model_name, train_ds, val_ds):
         save_freq = 'epoch'
     )
     
-    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=[cp_callback])
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=[cp_callback], verbose=2)
     model.summary()
     
     _, test_acc = model.evaluate(test_ds, verbose=2)
@@ -261,7 +255,7 @@ def training_and_pruning_model(model, model_name, train_ds, val_ds, num_coeff):
     )
     callbacks = [tfmot.sparsity.keras.UpdatePruningStep(), cp_callback]
     
-    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=callbacks)
+    model.fit(train_ds, batch_size=32, epochs=20, validation_data=val_ds, callbacks=callbacks, verbose=2)
     
     stripped_model_folder = f'./stripped/{model_name}_chkp_best'
     strip_model = tfmot.sparsity.keras.strip_pruning(model)
@@ -284,7 +278,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     
     # Basic file
-    converter = tf.lite.TFLiteConverter.from_saved_model(model_folder)
+    converter = tflite.TFLiteConverter.from_saved_model(model_folder)
     tflite_model = converter.convert()
     
     with open(basic_file, 'wb') as f:
@@ -293,7 +287,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     
     # Optimized file
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.optimizations = [tflite.Optimize.DEFAULT]
     tflite_quant_model = converter.convert()
     
     with open(optimized_file, 'wb') as f:
@@ -361,13 +355,12 @@ if version in ['a', 'b']:
     _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
     
     shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
-    
 elif version in ['c']:
-    pass
-
-
-
-
+    model = keras.models.load_model(trained_model_path)
+    
+    _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
+    
+    shutil.copyfile(optimized_file, f"./{model_name}.tflite")
 
 
 
