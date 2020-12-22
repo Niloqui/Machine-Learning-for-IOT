@@ -21,8 +21,7 @@ output_folder = f"./hw2ex1_{version}/"
 if not os.path.isdir(output_folder):
     os.mkdir(output_folder)
 else:
-    #os.system(f"mkdir -r {output_folder}")
-    raise NameError('output folder already exists')
+    raise NameError(f'output folder "hw2ex1_{version}" already exists')
 
 seed = 42
 tf.random.set_seed(seed)
@@ -63,7 +62,6 @@ class WindowGenerator:
     def split_window(self, features):
         #input_indeces = np.arange(self.input_width)
         inputs = features[:, :-self.label_width, :]
-        #num_labels=2
         if self.label_options < 2:
             labels = features[:, -self.label_width:, self.label_options]
             labels = tf.expand_dims(labels, -1)
@@ -105,6 +103,7 @@ class WindowGenerator:
 
 num_labels = 2*label_width
 
+#one-dim cnn was found to be the best model among the three defined in lab 3
 model = tf.keras.Sequential([
     tf.keras.layers.Conv1D(filters=64*alpha, kernel_size=(3,), activation="relu"),
     tf.keras.layers.Flatten(),
@@ -128,7 +127,6 @@ class MultiOutputMAE(tf.keras.metrics.Metric):
         
     def update_state(self, y_true, y_pred, sample_weight=None):
         error = tf.abs(y_pred - y_true)
-        #error = tf.reduce_mean(error, axis=1)
         error = tf.reduce_mean(error, axis=[0,1])
         self.total.assign_add(error)
         self.count.assign_add(1)
@@ -179,7 +177,7 @@ strip_model.save(f'./stripped/dscnn_chkp_best_mfccs')"""
 
 converter = tf.lite.TFLiteConverter.from_saved_model(output_folder)
 
-"""WEIGHTS_ONLY QUANTIZATION: it was skipped by the system since we have to few units in our layers"""
+"""WEIGHTS_ONLY QUANTIZATION: it was skipped by the system since we have to few units in our layers after width scaling"""
 #converter.optimizations= [tf.lite.Optimize.DEFAULT]
 
 quant_model= converter.convert()
@@ -207,7 +205,7 @@ test_ds = test_ds.unbatch().batch(1)
 
 sum_mae = 0
 for data, label in test_ds:
-    interpreter.set_tensor(input_details[0]['index'], data)#list(train_ds)[0][0])
+    interpreter.set_tensor(input_details[0]['index'], data)
     interpreter.invoke()
     my_output = interpreter.get_tensor(output_details[0]['index'])
     mae_vector = np.abs(my_output-label)
