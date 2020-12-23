@@ -43,9 +43,9 @@ num_coefficients = args.coeff
 #stride = 160
 #length = 320
 #rate = 8000
-args.mfcc = True
-num_coefficients = 8
-args.model = "pruned16000_2_mfccs_optimized.tflite"
+#args.mfcc = True
+#num_coefficients = 8
+#args.model = "pruned16000_2_mfccs_optimized.tflite"
 
 
 
