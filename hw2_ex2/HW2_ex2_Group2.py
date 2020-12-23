@@ -40,7 +40,7 @@ if not os.path.exists(data_dir):
         cache_dir='.', cache_subdir='data')
 
 LABELS = np.array(tf.io.gfile.listdir(str(data_dir))) 
-LABELS = LABELS[LABELS != 'README.md']
+LABELS = np.sort(LABELS[LABELS != 'README.md'])
 print(LABELS)
 
 def my_resample(audio, downsample):
