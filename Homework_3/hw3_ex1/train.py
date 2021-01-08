@@ -140,9 +140,8 @@ VERSION_LITTLE_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
 # kws_inference.py --model little.tflite --length 320 --stride 160 --mfcc --rate 8000
 
 VERSION_BIG_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 10}
 # kws_inference.py --model big.tflite --mfcc
-
 
 stride = [2, 1]
 
@@ -167,25 +166,48 @@ test_ds = generator.make_dataset(test_files, False)
 
 ### Model definition
 # A modified version of the DSCNN
-model = keras.Sequential([
-        keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
+
+if version in ['little']:
+    model = keras.Sequential([
+            keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
+            keras.layers.BatchNormalization(momentum=0.1),
+            keras.layers.Dropout(0.1),
+            keras.layers.ReLU(),
+            keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+            keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+            keras.layers.BatchNormalization(momentum=0.1),
+            keras.layers.Dropout(0.1),
+            keras.layers.ReLU(),
+            keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+            keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+            keras.layers.BatchNormalization(momentum=0.1),
+            keras.layers.Dropout(0.1),
+            keras.layers.ReLU(),
+            keras.layers.GlobalAveragePooling2D(),
+            keras.layers.Dropout(0.5),
+            keras.layers.Dense(units=len(LABELS))
+    ])
+elif version in ['big']:
+    model = keras.Sequential([
+        keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.GlobalAveragePooling2D(),
         keras.layers.Dropout(0.5),
         keras.layers.Dense(units=len(LABELS))
-])
+    ])
+
 
 
 ### Training for the first time
@@ -284,7 +306,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     with open(basic_file, 'wb') as f:
         f.write(tflite_model)
     tflb_size = os.path.getsize(basic_file)
-
+    
     
     # Optimized file
     converter.optimizations = [tflite.Optimize.DEFAULT]
