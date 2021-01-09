@@ -7,12 +7,13 @@ from scipy import signal
 import os
 import socket
 import requests
-
+import json
+import base64
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--server_ip', type=str, default="192.168.1.54",
         help='local adress o')
-parser.add_argument('--server_port', type=int, default=8079,
+parser.add_argument('--server_port', type=int, default=8080,
         help='server port')		
 parser.add_argument('--rate', type=int, default=16000,
         help='sampling rate after resampling')
@@ -53,9 +54,9 @@ if not os.path.exists(data_dir):
         cache_dir='.', cache_subdir='data')
 
 # raspberry ip 
-RASPIP = '198.168.1.60'
+RASPIP = '192.168.1.54'#'198.168.1.60'
 
-model = './Group2_kws_c.tflite' # load small model
+model_path = './Group2_kws_c.tflite' # load small model
 
 num_frames = (rate - length) // stride + 1
 num_spectrogram_bins = length // 2 + 1
@@ -63,19 +64,19 @@ num_spectrogram_bins = length // 2 + 1
 linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
         num_mel_bins, num_spectrogram_bins, rate, 20, 4000)
 
-if model is not None:
-    interpreter = tf.lite.Interpreter(model_path=model)
-    interpreter.allocate_tensors()
 
-    input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
+interpreter = tf.lite.Interpreter(model_path=model_path)
+interpreter.allocate_tensors()
 
-f = open("kws_test_split.txt", "r")
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+f = open("../kws_test_split.txt", "r")
 test_set = f.readlines()
 f.close()
 
 data_dir = os.path.join('.','data', 'mini_speech_commands')
-fl = open("labels.txt", "r") 
+fl = open("../labels.txt", "r")
 LABELS = fl.readlines()
 fl.close()
 
@@ -88,16 +89,16 @@ for audio_path in test_set:
     num += 1
     if num%100 == 0:
         print(num)
-    
-    #sample = np.array(np.random.random_sample(48000), dtype=np.float32)
+
     parts = tf.strings.split(audio_path, os.path.sep)
     label = parts[-2]
     label = tf.argmax(label == LABELS)
     label = label.numpy()
     
     audio_binary = tf.io.read_file(audio_path.replace("\n",''))
-    audio_raw, _ = tf.audio.decode_wav(audio_binary)
-    audio = tf.squeeze(audio_raw, axis=1)
+    audio, _ = tf.audio.decode_wav(audio_binary)
+    enc = base64.b64encode(audio_binary)
+    audio = tf.squeeze(audio, axis=1)
     zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
     audio = tf.concat([audio,zero_padding],0)
     sample = audio.numpy()
@@ -105,7 +106,6 @@ for audio_path in test_set:
     start = time.time()
 
     # Resampling
-    #sample = signal.resample_poly(sample, 1, 48000 // rate)
     sample = signal.resample_poly(sample, 1, 16000 // rate)
     sample = tf.convert_to_tensor(sample, dtype=tf.float32)
 
@@ -135,14 +135,16 @@ for audio_path in test_set:
     interpreter.invoke()
     output_data = interpreter.get_tensor(output_details[0]['index'])
 
-    if (np.sort(output_data)[0] - np.sort(output_data)[1]) <= threshold:
+    if (np.sort(output_data)[0][0] - np.sort(output_data)[0][1]) <= threshold:
 
         body = {
                 'bn': f'http://{RASPIP}/',
-                'e': [{'audio': audio_raw}]
+                't': 10,
+                'e': [{'n': 'audio', 'vd': enc}]
                 }
+        body = json.dumps(body)
 
-        url = 'http://{server_ip}:{server_port}/'
+        url = f'http://{args.server_ip}:{args.server_port}/'
         r = requests.put(url, json=body)
 
         if r.status_code == 200:
@@ -154,15 +156,12 @@ for audio_path in test_set:
             print('Error')
             print(r.text)	
     
-    net_cost = len(request.content) + len(response.content)
+    net_cost = len(r.content)
     if label == np.argmax(output_data):
         num_corr += 1
 
     end = time.time()
     tot_latency.append(end - start)
-
-    if args.model is None:
-        start_inf = end
 
     inf_latency.append(end - start_inf)
     #time.sleep(0.1)
@@ -171,7 +170,3 @@ print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
 print('Total Latency {:.2f}ms'.format(np.mean(tot_latency)*1000.))
 print(f'Communication cost {net_cost/(2014*8)}')
 print('Accuracy', num_corr/num)
-
-
-#from subprocess import check_output
-#print check_output(['hostname', '-I'])

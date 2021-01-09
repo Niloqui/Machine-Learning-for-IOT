@@ -17,7 +17,7 @@ class InferenceService(object):
             self.input_details = self.interpreter.get_input_details()
             output_details = self.interpreter.get_output_details()
 
-        labels_file = open("labels.txt", "r")
+        labels_file = open("../labels.txt", "r")
         LABELS = labels_file.read()
         labels_file.close()
         self.labels = np.array(LABELS.split(" "))
@@ -59,7 +59,7 @@ class InferenceService(object):
 
         audio_string = None
         for event in events:
-            audio_string = event['audio']
+            audio_string = event['vd']
         if audio_string is None:
             raise cherrypy.HTTPError(400, 'no audio event')
 
