@@ -22,28 +22,32 @@ class InferEngine:
             self.model = model
             self.interpreter = tf.lite.Interpreter(model_path=model)
             self.interpreter.allocate_tensors()
-            self.input_details = interpreter.get_input_details()
+            self.input_details = self.interpreter.get_input_details()
 
-        self.clientID = model
+        self.clientID = "inference-"+model
         self._sub_topic = "/+/data/+" #from any publisher any audio preprocessed
-        self._pub_topic = f"/{clientID}/data/" #this model version
+        self._pub_topic = f"/{self.clientID}/data/" #this model version
         self._isSubscriber = True
 
         # create an instance of paho.mqtt.client
-        self._paho_mqtt = PahoMQTT.Client(clientID, False) 
+        self._paho_mqtt = PahoMQTT.Client(self.clientID, False) 
 
         # register the callback
         self._paho_mqtt.on_connect = self.myOnConnect
         self._paho_mqtt.on_message = self.myOnMessageReceived
 
 
-    def myOnConnect (self, paho_mqtt, userdata, flags, rc):
+    def myOnConnect(self, paho_mqtt, userdata, flags, rc):
         print("Connected to %s with result code: %d" % (self.broker, rc))
 
-    def myOnMessageReceived (self, paho_mqtt , userdata, msg):
+    def myOnMessageReceived(self, paho_mqtt , userdata, msg):
         # A new message is received
-        self.notifier.notify (msg.topic, msg.payload)
-        self.run_inference(msg.topic,msg.payload)
+        self._paho_mqtt.notify(msg.topic, msg.payload)
+        print(f'received {msg.topic} from {paho_mqtt}-{userdata}')
+        if(msg.topic.endswith('stop')):
+            self.stop()
+            return
+        self.run_inference(msg.topic,msg.payload['data'])
 
 
     def myPublish (self, topic, msg):
@@ -61,19 +65,14 @@ class InferEngine:
 
         # just to remember that it works also as a subscriber
         self._isSubscriber = True
-        self._topic = topic
+        self._sub_topic = topic
+        print("done")
 
     def start(self):
         #manage connection to broker
         self._paho_mqtt.connect(self.broker , self.port)
         self._paho_mqtt.loop_start()
-        self.mySubscribe()
-        print("subscribing to %s" % (self._sub_topic))
-        # subscribe for a topic
-        self._paho_mqtt.subscribe(self._sub_topic, 2)
-
-        # just to remember that it works also as a subscriber
-        self._isSubscriber = True
+        self.mySubscribe(self._sub_topic)
 
     def stop (self):
         if (self._isSubscriber):
@@ -116,6 +115,8 @@ parser.add_argument('--version', default=0, type=int, help='Model version')
 args = parser.parse_args()
 version = args.version
 model_name = f'{version}.tflite'
-inf = InferEngine(model_name)
-inf.start()
-
+inf = InferEngine(model_name,broker="192.168.1.195")
+try:
+    inf.start()
+except Exception as e:
+    print(e)
