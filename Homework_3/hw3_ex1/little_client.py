@@ -139,7 +139,7 @@ for audio_path in test_set:
 
         body = {
                 'bn': f'http://{RASPIP}/',
-                't': 10,
+                'bt': 10,
                 'e': [{'n': 'audio', 'vd': enc}]
                 }
         body = json.dumps(body)
