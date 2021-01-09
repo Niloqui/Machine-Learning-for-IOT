@@ -3,7 +3,7 @@ import argparse
 import os
 import shutil
 import time as t
-
+import json
 import numpy as np
 import pandas as pd
 import tensorflow_model_optimization as tfmot
@@ -12,14 +12,20 @@ import tensorflow as tf
 tflite = tf.lite
 keras = tf.keras
 
-class MyMQTT:
-    def __init__(self, clientID, broker, port, notifier):
+class InferEngine():
+    def __init__(self, model, broker="mqtt.eclipseprojects.io", port=1883, notifier=self):
         self.broker = broker
         self.port = port
         self.notifier = notifier
-        self.clientID = clientID
+        if model is not None:
+            self.model = model
+            self.interpreter = tf.lite.Interpreter(model_path=model)
+            self.interpreter.allocate_tensors()
+            self.input_details = interpreter.get_input_details()
 
-        self._topic = ""
+        self.clientID = model
+        self._sub_topic = "/+/data/+" #from any publisher 
+        self._pub_topic = f"/{clientID}/data/"
         self._isSubscriber = True
 
         # create an instance of paho.mqtt.client
@@ -36,10 +42,12 @@ class MyMQTT:
     def myOnMessageReceived (self, paho_mqtt , userdata, msg):
         # A new message is received
         self.notifier.notify (msg.topic, msg.payload)
+        self.run_inference(msg.topic,msg.payload)
 
 
     def myPublish (self, topic, msg):
         # if needed, you can do some computation or error-check before publishing
+        topic = "/".join(self._pub_topic,topic)
         print("publishing '%s' with topic '%s'" % (msg, topic))
         # publish a message with a certain topic
         self._paho_mqtt.publish(topic, msg, 2)
@@ -58,6 +66,13 @@ class MyMQTT:
         #manage connection to broker
         self._paho_mqtt.connect(self.broker , self.port)
         self._paho_mqtt.loop_start()
+        self.mySubscribe()
+        print("subscribing to %s" % (self._sub_topic))
+        # subscribe for a topic
+        self._paho_mqtt.subscribe(self._sub_topic, 2)
+
+        # just to remember that it works also as a subscriber
+        self._isSubscriber = True
 
     def stop (self):
         if (self._isSubscriber):
@@ -66,45 +81,10 @@ class MyMQTT:
 
         self._paho_mqtt.loop_stop()
         self._paho_mqtt.disconnect() 
-        
-        
-        
-class InferEngine():
-    def __init__(self, clientID, model):
-        # create an instance of MyMQTT class
-        self.clientID = clientID
-        # Give as last parameter the object itself so MyQTT.py client can invoke the notify method
-        self.myMqttClient = MyMQTT(self.clientID, "mqtt.eclipseprojects.io", 1883, self) 
-        if model is not None:
-            self.model = model
-            self.interpreter = tf.lite.Interpreter(model_path=args.model)
-            self.interpreter.allocate_tensors()
-
-            self.input_details = interpreter.get_input_details()
-            self.output_details = interpreter.get_output_details()
-
-
-    def run(self):
-        # if needed, perform some other actions befor starting the mqtt communication
-        print("running %s" % (self.clientID))
-        self.myMqttClient.start()
-
-    def end(self):
-        # if needed, perform some other actions befor ending the software
-        print("ending %s" % (self.clientID))
-        self.myMqttClient.stop ()
-
-    # As said in MyMQTT.py this class must have a notify method
-    # in which we process our messages.
-    def notify(self, topic, msg):
-        # manage here your received message. You can perform some error-check here  
-        print("received '%s' under topic '%s'" % (msg, topic))
-        
-    def subs():
-        self.myMqttClient.mySubscribe(f"/devID/data/{audio_index}")
-        
-        
-    def run_inference():
+              
+    def run_inference(self,topic,data):
+        pubtopic = topic.split(os.path.separator)[-1]
+        input_tensor = data
         if self.interpreter:
             self.interpreter.set_tensor(input_details[0]['index'], input_tensor)
             start_inf = time.time()
@@ -126,6 +106,8 @@ class InferEngine():
 
         print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
         print(f"Predicted label {label}: confidence {self.conf[label]}, score margin {scm}, trust score: {trust_score}"
+        msg = {"label":label,"ts":trust_score}
+        self.myPublish(pubtopic,msg)
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
@@ -140,6 +122,6 @@ np.random.seed(seed)
 
 
 
-inf = InferEngine(f"inference model-{version}")
-inf.run()
+inf = InferEngine(model_name)
+inf.start()
 
