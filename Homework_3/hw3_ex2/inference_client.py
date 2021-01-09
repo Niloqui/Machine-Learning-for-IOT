@@ -12,11 +12,11 @@ import tensorflow as tf
 tflite = tf.lite
 keras = tf.keras
 
-class InferEngine():
-    def __init__(self, model, conf={}, broker="mqtt.eclipseprojects.io", port=1883, notifier=self):
+class InferEngine:
+    def __init__(self, model, conf={}, broker="mqtt.eclipseprojects.io", port=1883):
         self.broker = broker
         self.port = port
-        self.notifier = notifier
+        self.notifier = self
         self.conf = conf
         if model is not None:
             self.model = model
@@ -106,23 +106,16 @@ class InferEngine():
         time.sleep(0.1)
 
         print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
-        print(f"Predicted label {label}: confidence {self.conf[label]}, score margin {scm}, trust score: {trust_score}"
+        print(f"Predicted label {label}: confidence {self.conf[label]}, score margin {scm}, trust score: {trust_score}")
         msg = {"label":label,"ts":trust_score}
         self.myPublish(pubtopic,msg)
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--version', default=0, type=int, help='Model version')
-
+args = parser.parse_args()
+version = args.version
 model_name = f'{version}.tflite'
-seed = args.seed
-
-# Setting seed for random number generation
-tf.random.set_seed(seed)
-np.random.seed(seed)
-
-
-
 inf = InferEngine(model_name)
 inf.start()
 
