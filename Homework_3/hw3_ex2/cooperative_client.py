@@ -17,7 +17,6 @@ class Processor():
     def __init__(self, clientID, dataf, preprocess, broker="mqtt.eclipseprojects.io", port=1883):
         self.broker = broker
         self.port = port
-        self.notifier = self
         self.clientID = clientID
         self._pub_topic = f"/{clientID}/data/" #from any publisher any audio preprocessed
         self._sub_topic = "/+/data/+" #this model version
@@ -40,17 +39,17 @@ class Processor():
 
     def myOnConnect (self, paho_mqtt, userdata, flags, rc):
         print("Connected to %s with result code: %d" % (self.broker, rc))
+        print(f"user data: {userdata}, flags: {flags}")
 
     def myOnMessageReceived (self, paho_mqtt , userdata, msg):
         # A new message is received
-        self.notifier.notify (msg.topic, msg.payload)
+        print(f'received {msg.topic} from {paho_mqtt}-{userdata}')
         self.store_record(msg.topic,msg.payload)
 
-
-    def myPublish (self, topic, msg):
+    def myPublish (self,status, topic, msg):
         # if needed, you can do some computation or error-check before publishing
-        topic = "/".join([self._pub_topic,topic])
-        print("publishing topic '%s'" % (topic))
+        topic = "".join([self._pub_topic,topic])
+        print(f"publishing topic {topic}        {status}%",flush=True)
         # publish a message with a certain topic
         self._paho_mqtt.publish(topic, msg, 2)
 
@@ -152,10 +151,11 @@ class Processor():
         f = open(self._LABELS, "r")
         self._LABELS = f.readlines()
         f.close()
-        for audio_path in test_set:
+        for i,audio_path in enumerate(test_set):
             idx, data, label = self.preprocess(audio_path)
-            self.myPublish(idx,json.dumps(data))
+            self.myPublish((i+1)*100/len(test_set),idx,json.dumps(data))
             self._ground_truth.append(label)
+        self.myPublish('[DONE]','stop',None)
 
         
             
@@ -190,6 +190,6 @@ preprocess['linear_to_mel_weight_matrix'] = tf.signal.linear_to_mel_weight_matri
 
 
 
-proc = Processor(clientID,datadir,preprocess)
+proc = Processor(clientID,datadir,preprocess,broker="192.168.1.195")
 proc.start()
 
