@@ -13,10 +13,11 @@ tflite = tf.lite
 keras = tf.keras
 
 class InferEngine():
-    def __init__(self, model, broker="mqtt.eclipseprojects.io", port=1883, notifier=self):
+    def __init__(self, model, conf={}, broker="mqtt.eclipseprojects.io", port=1883, notifier=self):
         self.broker = broker
         self.port = port
         self.notifier = notifier
+        self.conf = conf
         if model is not None:
             self.model = model
             self.interpreter = tf.lite.Interpreter(model_path=model)
@@ -24,8 +25,8 @@ class InferEngine():
             self.input_details = interpreter.get_input_details()
 
         self.clientID = model
-        self._sub_topic = "/+/data/+" #from any publisher 
-        self._pub_topic = f"/{clientID}/data/"
+        self._sub_topic = "/+/data/+" #from any publisher any audio preprocessed
+        self._pub_topic = f"/{clientID}/data/" #this model version
         self._isSubscriber = True
 
         # create an instance of paho.mqtt.client
