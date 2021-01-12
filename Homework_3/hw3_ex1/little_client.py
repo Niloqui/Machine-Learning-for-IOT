@@ -9,6 +9,7 @@ import socket
 import requests
 import json
 import base64
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--server_ip', type=str, default="192.168.1.54",
@@ -29,7 +30,7 @@ parser.add_argument('--bins', type=int, default=40,
         help='number of mel bins')
 parser.add_argument('--coeff', type=int, default=10,
         help='number of MFCCs')
-parser.add_argument('--th', type=float, default=0.5,
+parser.add_argument('--th', type=float, default=0.25,
         help='threshold for score margin')
 args = parser.parse_args()
 
@@ -56,7 +57,7 @@ if not os.path.exists(data_dir):
 # raspberry ip 
 RASPIP = '192.168.1.54'#'198.168.1.60'
 
-model_path = './Group2_kws_c.tflite' # load small model
+model_path = './tflite_models/little_pruned_optimized.tflite' # load small model
 
 num_frames = (rate - length) // stride + 1
 num_spectrogram_bins = length // 2 + 1
@@ -76,15 +77,17 @@ test_set = f.readlines()
 f.close()
 
 data_dir = os.path.join('.','data', 'mini_speech_commands')
-fl = open("../labels.txt", "r")
-LABELS = fl.readlines()
-fl.close()
+labels_file = open("../labels.txt", "r")
+LABELS = labels_file.read()
+labels_file.close()
+labels = np.array(LABELS.split(" "))
 
 
 inf_latency = []
 tot_latency = []
 num = 0
 num_corr = 0
+net_cost = 0
 for audio_path in test_set:
     num += 1
     if num%100 == 0:
@@ -92,12 +95,12 @@ for audio_path in test_set:
 
     parts = tf.strings.split(audio_path, os.path.sep)
     label = parts[-2]
-    label = tf.argmax(label == LABELS)
+    label = tf.argmax(label == labels)
     label = label.numpy()
     
     audio_binary = tf.io.read_file(audio_path.replace("\n",''))
     audio, _ = tf.audio.decode_wav(audio_binary)
-    enc = base64.b64encode(audio_binary)
+    enc = tf.io.encode_base64(audio_binary).numpy()
     audio = tf.squeeze(audio, axis=1)
     zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
     audio = tf.concat([audio,zero_padding],0)
@@ -134,15 +137,18 @@ for audio_path in test_set:
     start_inf = time.time()
     interpreter.invoke()
     output_data = interpreter.get_tensor(output_details[0]['index'])
+    probs = tf.nn.softmax(output_data)
 
-    if (np.sort(output_data)[0][0] - np.sort(output_data)[0][1]) <= threshold:
+    now = datetime.datetime.now()
+    timestamp = int(now.timestamp())
+
+    if (np.sort(probs[0])[-1] - np.sort(probs[0])[-2]) <= threshold:
 
         body = {
                 'bn': f'http://{RASPIP}/',
-                'bt': 10,
-                'e': [{'n': 'audio', 'vd': enc}]
+                'bt': timestamp,
+                'e': [{'n': 'audio', 'u': '/', 't': 0, 'vd': enc}]
                 }
-        body = json.dumps(body)
 
         url = f'http://{args.server_ip}:{args.server_port}/'
         r = requests.put(url, json=body)
@@ -150,15 +156,19 @@ for audio_path in test_set:
         if r.status_code == 200:
             rbody = r.json()
             #prob = rbody['probability']
-            label = rbody['label']
+            prediction = rbody['label']
             
         else:
             print('Error')
-            print(r.text)	
+            print(r.text)
     
-    net_cost = len(r.content)
-    if label == np.argmax(output_data):
-        num_corr += 1
+        net_cost += len(enc)
+        if labels[label] == prediction:
+            num_corr += 1
+
+    else:
+        if label == np.argmax(probs[0]):
+            num_corr += 1
 
     end = time.time()
     tot_latency.append(end - start)
@@ -168,5 +178,5 @@ for audio_path in test_set:
     
 print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
 print('Total Latency {:.2f}ms'.format(np.mean(tot_latency)*1000.))
-print(f'Communication cost {net_cost/(2014*8)}')
+print(f'Communication cost {net_cost/(2**20)} MB')
 print('Accuracy', num_corr/num)

@@ -38,7 +38,7 @@ if not os.path.exists(data_dir):
         extract=True,
         cache_dir='.', cache_subdir='data')
 
-labels_file = open("labels.txt", "r")
+labels_file = open("../labels.txt", "r")
 LABELS = labels_file.read()
 LABELS = np.array(LABELS.split(" "))
 labels_file.close()
@@ -154,9 +154,9 @@ elif version in ['big']:
 else:
     raise ValueError("Version not existing")
 
-train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
-val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
-test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
+train_files = tf.strings.split(tf.io.read_file('../kws_train_split.txt'),sep='\n')[:-1]
+val_files = tf.strings.split(tf.io.read_file('../kws_val_split.txt'),sep='\n')[:-1]
+test_files = tf.strings.split(tf.io.read_file('../kws_test_split.txt'),sep='\n')[:-1]
 
 generator = SignalGenerator(LABELS, 16000, sample_rate, **options)
 train_ds = generator.make_dataset(train_files, True)
