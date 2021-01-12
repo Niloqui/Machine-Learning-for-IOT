@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import tensorflow_model_optimization as tfmot
 import tensorflow as tf
+import time
+import base64
 #import tensorflow.lite as tflite
 tflite = tf.lite
 keras = tf.keras
@@ -16,7 +18,6 @@ class InferEngine:
     def __init__(self, model, conf={}, broker="mqtt.eclipseprojects.io", port=1883):
         self.broker = broker
         self.port = port
-        self.notifier = self
         self.conf = conf
         if model is not None:
             self.model = model
@@ -35,7 +36,10 @@ class InferEngine:
         # register the callback
         self._paho_mqtt.on_connect = self.myOnConnect
         self._paho_mqtt.on_message = self.myOnMessageReceived
+        self._paho_mqtt.notify = self.myNotify
 
+    def myNotify(self, topic, msg):
+        print(topic)
 
     def myOnConnect(self, paho_mqtt, userdata, flags, rc):
         print("Connected to %s with result code: %d" % (self.broker, rc))
@@ -45,9 +49,9 @@ class InferEngine:
         self._paho_mqtt.notify(msg.topic, msg.payload)
         print(f'received {msg.topic} from {paho_mqtt}-{userdata}')
         if(msg.topic.endswith('stop')):
-            self.stop()
+            self._paho_mqtt.unsubscribe(self._sub_topic)
             return
-        self.run_inference(msg.topic,msg.payload['data'])
+        self.run_inference(msg.topic,msg.payload)
 
 
     def myPublish (self, topic, msg):
@@ -70,27 +74,35 @@ class InferEngine:
 
     def start(self):
         #manage connection to broker
+        print("connecting to:",self.broker,self.port)
         self._paho_mqtt.connect(self.broker , self.port)
         self._paho_mqtt.loop_start()
         self.mySubscribe(self._sub_topic)
+        while (input()!=''):
+            time.sleep(1)
+        self.stop()
+        
 
     def stop (self):
         if (self._isSubscriber):
             # remember to unsuscribe if it is working also as subscriber 
-            self._paho_mqtt.unsubscribe(self._topic)
+            self._paho_mqtt.unsubscribe(self._sub_topic)
 
         self._paho_mqtt.loop_stop()
         self._paho_mqtt.disconnect() 
               
     def run_inference(self,topic,data):
-        pubtopic = topic.split(os.path.separator)[-1]
-        input_tensor = data
+        pubtopic = self._pub_topic + topic.split("/")[-1]
+        msg = json.load(data)
+        print(msg)
+        data = base64.decodebytes(data)
+        input_tensor = tf.io.decode_raw(data,tf.float32)
         if self.interpreter:
-            self.interpreter.set_tensor(input_details[0]['index'], input_tensor)
+            self.interpreter.set_tensor(self.input_details[0]['index'], input_tensor)
             start_inf = time.time()
             self.interpreter.invoke()
             output_data = interpreter.get_tensor(output_details[0]['index'])
-            
+        print(output_data)
         label, second = np.argsort(output_data)
         score_margin = output_data[label] - output_data[second]
         trust_score = score_margin * self.conf[label]
@@ -115,7 +127,7 @@ parser.add_argument('--version', default=0, type=int, help='Model version')
 args = parser.parse_args()
 version = args.version
 model_name = f'{version}.tflite'
-inf = InferEngine(model_name,broker="192.168.1.195")
+inf = InferEngine(model_name,broker='192.168.1.195')
 try:
     inf.start()
 except Exception as e:

@@ -9,6 +9,7 @@ import pandas as pd
 import tensorflow_model_optimization as tfmot
 import tensorflow as tf
 from scipy import signal
+import base64
 #import tensorflow.lite as tflite
 tflite = tf.lite
 keras = tf.keras
@@ -19,7 +20,7 @@ class Processor():
         self.port = port
         self.clientID = clientID
         self._pub_topic = f"/{clientID}/data/" #from any publisher any audio preprocessed
-        self._sub_topic = "/+/data/+" #this model version
+        self._sub_topic = "/+/data/#" #this model version
         self._isSubscriber = True
         self._records = pd.DataFrame(columns = ['audio','model','label','score'])
         self._test_ds = os.path.join(dataf,"kws_test_split.txt")
@@ -132,7 +133,7 @@ class Processor():
             # Resize (optional)
             spectrogram = tf.reshape(spectrogram, [1, self._preprocess['num_frames'], self._preprocess['num_spectrogram_bins'], 1])
             spectrogram = tf.image.resize(spectrogram, [self._preprocess['resize'], self._preprocess['resize']])
-            data = f'{spectrogram}'
+            data = spectrogram
         else:
             # MFCC (optional)
             mel_spectrogram = tf.tensordot(spectrogram, self._preprocess['linear_to_mel_weight_matrix'], 1)
@@ -140,7 +141,9 @@ class Processor():
             mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)
             mfccs = mfccs[..., :self._preprocess['num_coefficients']]
             mfccs = tf.reshape(mfccs, [1, self._preprocess['num_frames'], self._preprocess['num_coefficients'], 1])
-            data = f'{mfccs}'
+            data = mfccs
+        data = {'data': base64.b64encode(data), 'shape': data.shape}
+        data = json.dumps(data)
         return idx, data, label
 
 
@@ -153,7 +156,7 @@ class Processor():
         f.close()
         for i,audio_path in enumerate(test_set):
             idx, data, label = self.preprocess(audio_path)
-            self.myPublish((i+1)*100/len(test_set),idx,json.dumps(data))
+            self.myPublish((i+1)*100/len(test_set),idx,data)
             self._ground_truth.append(label)
         self.myPublish('[DONE]','stop',None)
 
@@ -190,6 +193,6 @@ preprocess['linear_to_mel_weight_matrix'] = tf.signal.linear_to_mel_weight_matri
 
 
 
-proc = Processor(clientID,datadir,preprocess,broker="192.168.1.195")
+proc = Processor(clientID,datadir,preprocess,broker='192.168.1.195')
 proc.start()
 
