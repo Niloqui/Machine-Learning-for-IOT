@@ -28,7 +28,6 @@ seed = args.seed
 tf.random.set_seed(seed)
 np.random.seed(seed)
 
-
 ### Loading the dataset
 data_dir = os.path.join('.','data', 'mini_speech_commands')
 if not os.path.exists(data_dir):
@@ -135,13 +134,24 @@ class SignalGenerator:
         return ds
 
 
-OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
+VERSION_LITTLE_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
+# kws_inference.py --model little.tflite --length 320 --stride 160 --mfcc --rate 8000
+
+VERSION_BIG_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 10}
+# kws_inference.py --model big.tflite --mfcc
 
 stride = [2, 1]
 
-
-sample_rate = 8000
+if version in ['little']:
+    options = VERSION_LITTLE_OPTIONS
+    sample_rate = 8000
+elif version in ['big']:
+    options = VERSION_BIG_OPTIONS
+    sample_rate = 16000
+else:
+    raise ValueError("Version not existing")
 
 train_files = tf.strings.split(tf.io.read_file('../kws_train_split.txt'),sep='\n')[:-1]
 val_files = tf.strings.split(tf.io.read_file('../kws_val_split.txt'),sep='\n')[:-1]
@@ -156,8 +166,8 @@ test_ds = generator.make_dataset(test_files, False)
 ### Model definition
 # A modified version of the DSCNN
 
-if version == 0:
-    model = keras.Sequential([ #LITTLE DSCNN
+if version in ['little']:
+    model = keras.Sequential([
             keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
             keras.layers.BatchNormalization(momentum=0.1),
             keras.layers.Dropout(0.1),
@@ -176,7 +186,7 @@ if version == 0:
             keras.layers.Dropout(0.5),
             keras.layers.Dense(units=len(LABELS))
     ])
-elif version == 1: #BIG DSCNN
+elif version in ['big']:
     model = keras.Sequential([
         keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
@@ -196,97 +206,6 @@ elif version == 1: #BIG DSCNN
         keras.layers.Dropout(0.5),
         keras.layers.Dense(units=len(LABELS))
     ])
-elif version == 2: #SIMPLE SEQUENTIAL
-    model = keras.Sequential([
-        keras.layers.Flatten(),
-        keras.layers.Dense(units=256,activation=keras.activations.relu),
-        keras.layers.Dense(units=256,activation=keras.activations.relu),
-        keras.layers.Dense(units=256,activation=keras.activations.relu),
-        keras.layers.Dense(units=len(LABELS))
-    ])
-
-elif verions == 3: #SIMPLE CNN
-    model = keras.Sequential([
-        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.GlobalAveragePooling2D(),
-        keras.layers.Dense(units=len(LABELS))
-    ])
-
-elif verion == 4: # MASKING
-    model = keras.Sequential([
-        keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.Masking(),
-        keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.Masking(),
-        keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
-        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
-        keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.ReLU(),
-        keras.layers.Masking(),
-        keras.layers.GlobalAveragePooling2D(),
-        keras.layers.Dense(units=len(LABELS))
-    ])
-
-elif version == 5:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
-            alpha=1.0,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
-
-elif version == 6:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
-            alpha=0.5,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
-elif version == 7:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
-            alpha=0.5,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
-
-elif version == 8:
-    model = tf.keras.applications.MobileNetV2(
-            input_shape=None,
-            alpha=1,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
-
-else:
-    print("model not found")
-    exit(-1)
-
 
 
 
@@ -326,7 +245,7 @@ def training_model(model, model_name, train_ds, val_ds):
         
     return callback_folder_name
 
-
+trained_model_path = training_model(model, model_name, train_ds, val_ds)
 
 
 ### Generating tflite models
@@ -437,10 +356,10 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     return basic_file, optimized_file, compressed_file
 
-print(model.summary())
-trained_model_path = training_model(model, str(version), train_ds, val_ds)
-model = keras.models.load_model(trained_model_path)
-pruning_params = {
+if version in ['little']:
+    model = keras.models.load_model(trained_model_path)
+    
+    pruning_params = {
         'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
             initial_sparsity = 0.3, 
             final_sparsity = 0.8,
@@ -448,34 +367,23 @@ pruning_params = {
             end_step = len(train_ds) * 15
         )
     }
-prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
-
-model_path = trained_model_path
-
-if version == 0:   #little
-    #if pruning
+    prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
     model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
-elif version == 1: #BIG DSCNN
-    print()
-elif version == 2: #dense
-    model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
-elif version == 3: #cnn
-    model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
-elif version == 4: #masking
-    print()
-elif version == 5: #mobilenet alpha 1
-    print()
-elif version == 6: #mobilenet alpha 0.5
-    print()
-elif version == 7: #mobilenetV2 alpha 0.5
-    print()
-elif version == 8: #mobilenetV2 alpha 1
-    print()
+    
+    pruned_model_name = model_name + "_pruned"
+    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 8)
+    
+    _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
+    
+    shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
+elif version in ['big']:
+    model = keras.models.load_model(trained_model_path)
+    
+    _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
+    
+    shutil.copyfile(optimized_file, f"./{model_name}.tflite")
 
-_, model_path, _ = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
-shutil.copyfile(compressed_file, f"./{version}.tflite")
+
+
 
 print("End.")
