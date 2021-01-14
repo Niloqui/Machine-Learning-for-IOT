@@ -134,9 +134,9 @@ class InferEngine:
         audio = tf.io.decode_raw(audio, tf.float32)
         audio = tf.reshape(audio, shape)
         
-        print("\n", "\n", shape, sep='\n', flush=True)
-        print(sensorID, flush=True)
-        print(pubtopic, flush=True)
+        #print("\n", "\n", shape, sep='\n', flush=True)
+        #print(sensorID, flush=True)
+        #print(pubtopic, flush=True)
         
         input_tensor = audio
         if self.interpreter:
@@ -145,7 +145,7 @@ class InferEngine:
             self.interpreter.invoke()
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
         
-        print(output_data, flush=True)
+        #print(output_data, flush=True)
         output_data = output_data[0]
         nump_sorted = np.argsort(output_data)
         label = nump_sorted[0]
