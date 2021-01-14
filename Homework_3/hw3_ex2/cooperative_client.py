@@ -40,12 +40,12 @@ class Processor():
         self._paho_mqtt.on_connect = self.myOnConnect
         self._paho_mqtt.on_message = self.myOnMessageReceived
         
-        self.num_models = 1
-        self.num_audio = 4 # 800
+        self.num_models = 2
+        self.num_audio = 20 # 800
         self.num_messages_received = 0
     
     
-    def myOnConnect (self, paho_mqtt, userdata, flags, rc):
+    def myOnConnect(self, paho_mqtt, userdata, flags, rc):
         print(f"Connected to {self.broker} with result code: {rc}")
         print(f"User data: {userdata}, Flags: {flags}")
     
@@ -53,12 +53,13 @@ class Processor():
     ####################################
     ####################################
     ####################################
-    def myOnMessageReceived (self, paho_mqtt, userdata, msg):
+    def myOnMessageReceived(self, paho_mqtt, userdata, msg):
         # A new message is received
         #print(f'Received {msg.topic} from {paho_mqtt}-{userdata}')
         if msg.topic != self._pub_topic:
             self.store_record(msg.topic, msg.payload)
-        
+            print(self.num_messages_received, flush=True)
+            
         #### TO-DO: Gestire qui la fine della ricezione dei messaggi
         # Quando sono arrivati tutti i messaggi, print_result(...)
     ####################################
@@ -135,26 +136,33 @@ class Processor():
         tops = str(topic).split(os.path.sep)
         data = json.loads(data)
         
-        model = tops[-1]
-        audio = data['bn'] # Audio ID
-        label = data['label']
-        score = data['ts']
+        row = {
+            'audio': data['bn'],
+            'label': data['label'],
+            'score': data['ts'],
+            'model': tops[-1]
+        }
         
-        #self._records.append(audio, model, label, score)
+        #self._records.append([audio, model, label, score])
+        #self._records.loc[self.num_messages_received] = [audio, model, label, score]
+        self._records = self._records.append(row, ignore_index=True)
         self.num_messages_received += 1
-        print(num_messages_received)
     
     def print_result(self):
         #recs = self._records.drop_column(['model'])
-        '''
-        self._LABELS = np.array(self._LABELS)
+        #self._LABELS = np.array(self._LABELS)
         
-        recs = self._records.GroupBy(['audio','label'])['score'].sum()
-        predictions = recs.GroupBy(['audio'])['score'].max()
-        accuracy = predictions[predictions == self._LABELS]
+        recs = self._records.groupby(['audio','label'])['score'].sum().reset_index()
         
-        print(f'Accuracy: {accuracy}%')
-        '''
+        idx = recs.groupby(['audio'])['score'].transform(max) == recs['score']
+        predictions = recs[idx].sort_values(by=['audio'])['label'].to_numpy()
+        
+        print(predictions)
+        print(self._ground_truth)
+        
+        accuracy = predictions[predictions == self._ground_truth]
+        print(f'Accuracy: {len(accuracy) / len(predictions)}%')
+        
         self.stop()
     
     def preprocess(self, audio_path):
@@ -208,7 +216,8 @@ class Processor():
         ####
         
         f = open(self._LABELS, "r")
-        self._LABELS = f.readlines()
+        self._LABELS = f.read().split(' ')
+        self._LABELS = np.array(self._LABELS)
         f.close()
         
         f = open(self._test_ds, "r")
@@ -243,14 +252,15 @@ class Processor():
             #self.myPublish((i+1)*100/len(test_set), idx, data)
             self.myPublish(msg)
             self._ground_truth.append(label)
-            #t.sleep(1)
+            t.sleep(0.1)
             
-            if i >= 3:
+            if i >= self.num_audio - 1:
                 break
             
             if (i + 1) % 100 == 0:
                 print(f"Sent {i + 1} / {len(test_set)}")
         
+        self._ground_truth = np.array(self._ground_truth)
         if len(test_set) % 100 != 0:
             print(f"Sent {len(test_set)} / {len(test_set)}")
         print(f"End publication.")
@@ -261,7 +271,7 @@ class Processor():
     
     def wait_all_results(self):
         # Da rifare meglio
-        while self.num_messages_received >= self.num_audio * self.num_models:
+        while self.num_messages_received < self.num_audio * self.num_models:
             t.sleep(1)
         
         pass
@@ -320,6 +330,8 @@ preprocess['linear_to_mel_weight_matrix'] = tf.signal.linear_to_mel_weight_matri
 proc = Processor(clientID, datadir, preprocess)
 proc.start()
 proc.wait_all_results()
-print("DIo porco")
+print("DioPorco.io:1883")
+print(proc.num_messages_received)
+print(proc._records)
 proc.print_result()
 
