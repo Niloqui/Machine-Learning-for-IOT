@@ -135,24 +135,13 @@ class SignalGenerator:
         return ds
 
 
-VERSION_LITTLE_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
+OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
         'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
-# kws_inference.py --model little.tflite --length 320 --stride 160 --mfcc --rate 8000
-
-VERSION_BIG_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 10}
-# kws_inference.py --model big.tflite --mfcc
 
 stride = [2, 1]
 
-if version in ['little']:
-    options = VERSION_LITTLE_OPTIONS
-    sample_rate = 8000
-elif version in ['big']:
-    options = VERSION_BIG_OPTIONS
-    sample_rate = 16000
-else:
-    raise ValueError("Version not existing")
+
+sample_rate = 8000
 
 train_files = tf.strings.split(tf.io.read_file('../kws_train_split.txt'),sep='\n')[:-1]
 val_files = tf.strings.split(tf.io.read_file('../kws_val_split.txt'),sep='\n')[:-1]
@@ -167,7 +156,7 @@ test_ds = generator.make_dataset(test_files, False)
 ### Model definition
 # A modified version of the DSCNN
 
-if version in ['little']:
+if version == 0:
     model = keras.Sequential([
             keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
             keras.layers.BatchNormalization(momentum=0.1),
@@ -187,7 +176,7 @@ if version in ['little']:
             keras.layers.Dropout(0.5),
             keras.layers.Dense(units=len(LABELS))
     ])
-elif version in ['big']:
+elif version == 1:
     model = keras.Sequential([
         keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
@@ -207,6 +196,50 @@ elif version in ['big']:
         keras.layers.Dropout(0.5),
         keras.layers.Dense(units=len(LABELS))
     ])
+elif version == 2:
+    model = keras.Sequential([
+        keras.layers.Flatten(),
+        keras.layers.Dense(units=256,activation=keras.activations.relu),
+        keras.layers.Dense(units=256,activation=keras.activations.relu),
+        keras.layers.Dense(units=256,activation=keras.activations.relu),
+        keras.layers.Dense(units=len(LABELS))
+    ])
+
+elif verions == 3:
+    model = keras.Sequential([
+        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.GlobalAveragePooling2D(),
+        keras.layers.Dense(units=len(LABELS))
+    ])
+
+elif verion == 4:
+    model = keras.Sequential([
+        keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.Masking(),
+        keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.Masking(),
+        keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
+        keras.layers.ReLU(),
+        keras.layers.Masking(),
+        keras.layers.GlobalAveragePooling2D(),
+        keras.layers.Dense(units=len(LABELS))
+    ])
+
 
 
 
