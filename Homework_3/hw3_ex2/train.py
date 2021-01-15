@@ -16,42 +16,17 @@ keras = tf.keras
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--version', default='little', type=str, help='Model version')
+parser.add_argument('--version', default=0, type=int, help='Model version')
 parser.add_argument('--seed', default=42, type=int, help='Set initial seed')
 args = parser.parse_args()
 
-version = str(args.version).lower()
+version = int(args.version)
 model_name = version
 seed = args.seed
 
 # Setting seed for random number generation
 tf.random.set_seed(seed)
 np.random.seed(seed)
-
-import argparse
-import os
-import shutil
-import time as t
-
-import numpy as np
-import pandas as pd
-import zlib
-from scipy import signal
-
-import tensorflow_model_optimization as tfmot
-import tensorflow as tf
-tflite = tf.lite
-keras = tf.keras
-l2 = tf.keras.regularizers.L2
-
-version = 11
-model_name = version
-seed = 42
-
-# Setting seed for random number generation
-tf.random.set_seed(seed)
-np.random.seed(seed)
-
 
 ### Loading the dataset
 data_dir = os.path.join('.','data', 'mini_speech_commands')
@@ -160,11 +135,11 @@ class SignalGenerator:
 
 
 OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 49}
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 24}
 stride = [2, 1]
 
 
-sample_rate = 16000
+sample_rate = 8000
 
 train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
 val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
@@ -260,6 +235,27 @@ def parallel_block(input, filters):
 
   return x
 
+def inception_block(input, filters):
+
+  s = 1
+  f1 = filters
+
+  
+  x_init = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
+
+  # first block
+  conv1x1 = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', use_bias=False)(x_init)
+
+  # second block
+  conv3x3 = keras.layers.Conv2D(f1, kernel_size=(3, 3), strides=(s, s), padding='same', use_bias=False)(x_init)
+
+  x = keras.layers.concatenate([x_init, conv3x3, conv1x1], axis=3)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+
+  return x
+
 def dscnn_res():
   input = keras.Input(shape=(49, 49, 1))
   x = in_block(input,32)
@@ -317,6 +313,21 @@ def dscnn_sub_super_redux():
   x = keras.layers.Dropout(0.5)(x)
   x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
   return keras.Model(inputs=input, outputs=x, name='DSCNN_res')
+
+def dscnn_inc():
+  input = keras.Input(shape=(24, 24, 1))
+  x = in_block(input,32)
+  x = exp_block(x,64)
+  x = inception_block(x,64)
+  x = exp_block(x,64) 
+  x = exp_block(x,128)
+  x = inception_block(x,128) 
+  x = exp_block(x,128)
+  x = keras.layers.GlobalAveragePooling2D()(x)
+  x = keras.layers.Flatten()(x)
+  x = keras.layers.Dropout(0.5)(x)
+  x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+  return keras.Model(inputs=input, outputs=x, name='DSCNN_inc')
 
 
 if version == 0:
@@ -446,11 +457,14 @@ elif version == 8: #da rivedere
 elif version == 9: #da rivedere
     model = dscnn_sub()
 
-elif version == 10: #non male ancora troppo overfitting
+elif version == 10:
     model = dscnn_sub_redux()
 
-elif version == 11: #piu stabile ma accuracy bassa
+elif version == 11:
     model = dscnn_sub_super_redux()
+
+elif version == 12:
+    model = dscnn_inc()
 
 else:
     print("model not found")
