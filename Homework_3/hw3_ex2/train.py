@@ -28,6 +28,31 @@ seed = args.seed
 tf.random.set_seed(seed)
 np.random.seed(seed)
 
+import argparse
+import os
+import shutil
+import time as t
+
+import numpy as np
+import pandas as pd
+import zlib
+from scipy import signal
+
+import tensorflow_model_optimization as tfmot
+import tensorflow as tf
+tflite = tf.lite
+keras = tf.keras
+l2 = tf.keras.regularizers.L2
+
+version = 11
+model_name = version
+seed = 42
+
+# Setting seed for random number generation
+tf.random.set_seed(seed)
+np.random.seed(seed)
+
+
 ### Loading the dataset
 data_dir = os.path.join('.','data', 'mini_speech_commands')
 if not os.path.exists(data_dir):
@@ -184,7 +209,7 @@ def exp_block(x, filters):
   x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
   x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='valid', use_bias=False)(x)
   x = keras.layers.BatchNormalization()(x)
-  x = keras.layers.Dropout(0.1)(x)
+  #x = keras.layers.Dropout(0.1)(x)
   x = keras.layers.ReLU()(x)
 
   return x
@@ -192,48 +217,45 @@ def exp_block(x, filters):
 def res_block(input, filters):
 
   s = 1
-  rs = 3
   f1 = filters
 
   # first block
-  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
-  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
-  x = keras.layers.BatchNormalization()(x)
-  x = keras.layers.Dropout(0.1)(x)
-  x = keras.layers.ReLU()(x)
-
-  # second block
-  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
-  x = keras.layers.Conv2D(f1, kernel_size=(s, s), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
-  x = keras.layers.BatchNormalization()(x)
-  x = keras.layers.Dropout(0.1)(x)
-  x = keras.layers.ReLU()(x)
-
-  # third block
-  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
-  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
-  x = keras.layers.BatchNormalization()(x)
-  x = keras.layers.Dropout(0.1)(x)
-  x = keras.layers.ReLU()(x)
-
-  # fourth block
-  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
-  x = keras.layers.Conv2D(f1, kernel_size=(s, s), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
+  x_init = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', use_bias=False)(x_init)
   x = keras.layers.BatchNormalization()(x)
   x = keras.layers.Dropout(0.1)(x)
 
-
-  #x_s = keras.layers.DepthwiseConv2D(kernel_size=[9, 9], strides=[1, 1], use_bias=False)(input)
-
-  
-  x_s = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
-  x_s = keras.layers.Conv2D(f1, kernel_size=(3, 3), strides=(1, 1), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x_s)
-  x_s = keras.layers.BatchNormalization()(x_s)
-  x_x = keras.layers.Dropout(0.1)(x_s)
-  
+  #### TO SUM THE TENSOR THEY MUST HAVE THE SAME SHAPE (PADDING OR SAME DEPTHWISE)
+  #diff = tf.subtract(tf.shape(input) ,tf.shape(x)) 
+  #print((diff[0],diff[1],diff[2],diff[3]))
+  #x = tf.keras.layers.ZeroPadding2D(padding=(1,1))(x)
+  input = keras.layers.BatchNormalization()(x_init)
 
   # add 
-  x = keras.layers.Add()([x_s, x])
+  x = keras.layers.Add()([input, x])
+  x = keras.layers.ReLU()(x)
+
+  return x
+
+def parallel_block(input, filters):
+
+  s = 1
+  f1 = filters
+
+  
+  x_init = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
+
+  # first block
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', use_bias=False)(x_init)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  # second block
+  x2 = keras.layers.Conv2D(f1, kernel_size=(3, 3), strides=(s, s), padding='same', use_bias=False)(x_init)
+  x2 = keras.layers.BatchNormalization()(x2)
+  x2 = keras.layers.Dropout(0.1)(x2)
+
+  # add 
+  x = keras.layers.Add()([x2, x])
   x = keras.layers.ReLU()(x)
 
   return x
@@ -245,11 +267,57 @@ def dscnn_res():
   x = exp_block(x,128)
   x = exp_block(x,256)
   x = exp_block(x,512)
+  x = res_block(x,512) #single res block accuracy on test 0.89 on training 0.98
   x = res_block(x,512)
+  x = exp_block(x,512)
   x = keras.layers.GlobalAveragePooling2D()(x)
   x = keras.layers.Flatten()(x)
+  x = keras.layers.Dropout(0.5)(x)
   x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
-  return keras.Model(inputs=input, outputs=x, name='Resnet50')
+  return keras.Model(inputs=input, outputs=x, name='DSCNN_res')
+
+def dscnn_sub():
+  input = keras.Input(shape=(49, 49, 1))
+  x = in_block(input,32)
+  x = exp_block(x,64)
+  x = exp_block(x,128)
+  x = exp_block(x,256)
+  x = exp_block(x,512)
+  x = parallel_block(x,512) #single res block accuracy on test 0.45 on training 0.993
+  x = parallel_block(x,512)
+  x = exp_block(x,512)
+  x = keras.layers.GlobalAveragePooling2D()(x)
+  x = keras.layers.Flatten()(x)
+  x = keras.layers.Dropout(0.5)(x)
+  x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+  return keras.Model(inputs=input, outputs=x, name='DSCNN_res')
+
+def dscnn_sub_redux():
+  input = keras.Input(shape=(49, 49, 1))
+  x = in_block(input,32)
+  x = exp_block(x,64)
+  x = parallel_block(x,64) #single res block accuracy on test 0.89 on training 0.98
+  x = exp_block(x,128)
+  x = parallel_block(x,128)
+  x = exp_block(x,128)
+  x = keras.layers.GlobalAveragePooling2D()(x)
+  x = keras.layers.Flatten()(x)
+  x = keras.layers.Dropout(0.5)(x)
+  x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+  return keras.Model(inputs=input, outputs=x, name='DSCNN_res')
+
+def dscnn_sub_super_redux():
+  input = keras.Input(shape=(49, 49, 1))
+  x = in_block(input,32)
+  x = exp_block(x,64)
+  x = parallel_block(x,64) 
+  x = exp_block(x,128)
+  x = keras.layers.GlobalAveragePooling2D()(x)
+  x = keras.layers.Flatten()(x)
+  x = keras.layers.Dropout(0.5)(x)
+  x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+  return keras.Model(inputs=input, outputs=x, name='DSCNN_res')
+
 
 if version == 0:
     model = keras.Sequential([ #LITTLE DSCNN
@@ -335,7 +403,7 @@ elif version == 4: # MASKING
         keras.layers.Dense(units=len(LABELS))
     ])
 
-elif version == 5: #schifo
+elif version == 5: #schifo 0.75
     model = keras.applications.MobileNet(
             input_shape=(49, 49, 1),
             alpha=1.0,
@@ -346,7 +414,7 @@ elif version == 5: #schifo
             weights=None,
             pooling="max"
         )
-elif version == 6: #schifo
+elif version == 6: #schifo 0.75
     model = tkeras.applications.MobileNetV2(
             input_shape=(49, 49, 1),
             alpha=1.0,
@@ -357,7 +425,7 @@ elif version == 6: #schifo
         )
     
 
-elif version == 7:
+elif version == 7: #migliore probabilmente
     model = keras.Sequential([
         input_layer(32),
         exp_red_block(64),
@@ -372,8 +440,18 @@ elif version == 7:
         keras.layers.Dense(units=len(LABELS))
     ])
 
-elif version == 8:
+elif version == 8: #da rivedere
     model = dscnn_res()
+
+elif version == 9: #da rivedere
+    model = dscnn_sub()
+
+elif version == 10: #non male ancora troppo overfitting
+    model = dscnn_sub_redux()
+
+elif version == 11: #piu stabile ma accuracy bassa
+    model = dscnn_sub_super_redux()
+
 else:
     print("model not found")
     exit(-1)
@@ -566,7 +644,7 @@ elif version == 7: #my expansion DSCNN
 elif version == 8: #my expansion + residual DSCNN
     print()
 
-_, model_path, _ = generate_tflite(model_path, model_name, test_ds)
-shutil.copyfile(compressed_file, f"./{version}.tflite")
+_, model_path, compressed_file = generate_tflite(model_path, model_name, test_ds)
+shutil.copyfile(compressed_file, f"./{version}.tflite.zlib")
 
 print("End.")
