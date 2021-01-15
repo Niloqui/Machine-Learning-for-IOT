@@ -28,7 +28,6 @@ seed = args.seed
 tf.random.set_seed(seed)
 np.random.seed(seed)
 
-
 ### Loading the dataset
 data_dir = os.path.join('.','data', 'mini_speech_commands')
 if not os.path.exists(data_dir):
@@ -38,7 +37,7 @@ if not os.path.exists(data_dir):
         extract=True,
         cache_dir='.', cache_subdir='data')
 
-labels_file = open("../labels.txt", "r")
+labels_file = open("./labels.txt", "r")
 LABELS = labels_file.read()
 LABELS = np.array(LABELS.split(" "))
 labels_file.close()
@@ -135,19 +134,18 @@ class SignalGenerator:
         return ds
 
 
-OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
-
+OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 49}
 stride = [2, 1]
 
 
-sample_rate = 8000
+sample_rate = 16000
 
-train_files = tf.strings.split(tf.io.read_file('../kws_train_split.txt'),sep='\n')[:-1]
-val_files = tf.strings.split(tf.io.read_file('../kws_val_split.txt'),sep='\n')[:-1]
-test_files = tf.strings.split(tf.io.read_file('../kws_test_split.txt'),sep='\n')[:-1]
+train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
+val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
+test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
 
-generator = SignalGenerator(LABELS, 16000, sample_rate, **options)
+generator = SignalGenerator(LABELS, 16000, sample_rate, **OPTIONS)
 train_ds = generator.make_dataset(train_files, True)
 val_ds = generator.make_dataset(val_files, False)
 test_ds = generator.make_dataset(test_files, False)
@@ -155,6 +153,103 @@ test_ds = generator.make_dataset(test_files, False)
 
 ### Model definition
 # A modified version of the DSCNN
+def input_layer(filters):
+  return keras.Sequential([keras.layers.Conv2D(filters=filters, kernel_size=[3, 3], strides=stride, use_bias=False),
+                            keras.layers.BatchNormalization(momentum=0.1),
+                            keras.layers.Dropout(0.1),
+                            keras.layers.ReLU()])
+
+def expansion_block(filters,loop=1):
+  return keras.Sequential([keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+                           keras.layers.Conv2D(filters=filters, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+                            keras.layers.BatchNormalization(momentum=0.1),
+                            keras.layers.Dropout(0.1),
+                            keras.layers.ReLU()])
+
+def in_block(x,filters):
+  s = 1
+  f1 = filters
+
+  # first block
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='valid', use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+  return x  
+
+def exp_block(x, filters):
+  s = 1
+  f1 = filters
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='valid', use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+
+  return x
+
+def res_block(input, filters):
+
+  s = 1
+  rs = 3
+  f1 = filters
+
+  # first block
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+
+  # second block
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
+  x = keras.layers.Conv2D(f1, kernel_size=(s, s), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+
+  # third block
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
+  x = keras.layers.Conv2D(f1, kernel_size=(1, 1), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+  x = keras.layers.ReLU()(x)
+
+  # fourth block
+  x = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(x)
+  x = keras.layers.Conv2D(f1, kernel_size=(s, s), strides=(s, s), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x)
+  x = keras.layers.BatchNormalization()(x)
+  x = keras.layers.Dropout(0.1)(x)
+
+
+  #x_s = keras.layers.DepthwiseConv2D(kernel_size=[9, 9], strides=[1, 1], use_bias=False)(input)
+
+  
+  x_s = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
+  x_s = keras.layers.Conv2D(f1, kernel_size=(3, 3), strides=(1, 1), padding='same', kernel_regularizer=l2(0.0001), use_bias=False)(x_s)
+  x_s = keras.layers.BatchNormalization()(x_s)
+  x_x = keras.layers.Dropout(0.1)(x_s)
+  
+
+  # add 
+  x = keras.layers.Add()([x_s, x])
+  x = keras.layers.ReLU()(x)
+
+  return x
+
+def dscnn_res():
+  input = keras.Input(shape=(49, 49, 1))
+  x = in_block(input,32)
+  x = exp_block(x,64)
+  x = exp_block(x,128)
+  x = exp_block(x,256)
+  x = exp_block(x,512)
+  x = res_block(x,512)
+  x = keras.layers.GlobalAveragePooling2D()(x)
+  x = keras.layers.Flatten()(x)
+  x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+  return keras.Model(inputs=input, outputs=x, name='Resnet50')
 
 if version == 0:
     model = keras.Sequential([ #LITTLE DSCNN
@@ -205,7 +300,7 @@ elif version == 2: #SIMPLE SEQUENTIAL
         keras.layers.Dense(units=len(LABELS))
     ])
 
-elif verions == 3: #SIMPLE CNN
+elif version == 3: #SIMPLE CNN
     model = keras.Sequential([
         keras.layers.Conv2D(filters=128, kernel_size=[3,3], strides = stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
@@ -220,7 +315,7 @@ elif verions == 3: #SIMPLE CNN
         keras.layers.Dense(units=len(LABELS))
     ])
 
-elif verion == 4: # MASKING
+elif version == 4: # MASKING
     model = keras.Sequential([
         keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
@@ -240,49 +335,45 @@ elif verion == 4: # MASKING
         keras.layers.Dense(units=len(LABELS))
     ])
 
-elif version == 5:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
+elif version == 5: #schifo
+    model = keras.applications.MobileNet(
+            input_shape=(49, 49, 1),
             alpha=1.0,
             depth_multiplier=1,
-            dropout=0.001,
+            dropout=0.5,
             include_top=True,
-            pooling=None,
             classes=len(LABELS),
+            weights=None,
+            pooling="max"
         )
+elif version == 6: #schifo
+    model = tkeras.applications.MobileNetV2(
+            input_shape=(49, 49, 1),
+            alpha=1.0,
+            include_top=True,
+            classes=len(LABELS),
+            weights=None,
+            pooling="max"
+        )
+    
 
-elif version == 6:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
-            alpha=0.5,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
 elif version == 7:
-    model = tf.keras.applications.MobileNet(
-            input_shape=None,
-            alpha=0.5,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
+    model = keras.Sequential([
+        input_layer(32),
+        exp_red_block(64),
+        exp_red_block(128),
+        exp_red_block(256),
+        exp_red_block(512),
+        exp_red_block(512),
+        exp_red_block(512),
+        exp_red_block(512),
+        keras.layers.GlobalAveragePooling2D(),
+        keras.layers.Dropout(0.5),
+        keras.layers.Dense(units=len(LABELS))
+    ])
 
 elif version == 8:
-    model = tf.keras.applications.MobileNetV2(
-            input_shape=None,
-            alpha=1,
-            depth_multiplier=1,
-            dropout=0.001,
-            include_top=True,
-            pooling=None,
-            classes=len(LABELS),
-        )
-
+    model = dscnn_res()
 else:
     print("model not found")
     exit(-1)
@@ -437,7 +528,7 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     return basic_file, optimized_file, compressed_file
 
-print(model.summary())
+
 trained_model_path = training_model(model, str(version), train_ds, val_ds)
 model = keras.models.load_model(trained_model_path)
 pruning_params = {
@@ -455,27 +546,27 @@ model_path = trained_model_path
 if version == 0:   #little
     #if pruning
     model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
+    model_path, _ = training_and_pruning_model(model, model_path+"_pruned", train_ds, val_ds, OPTIONS.num_coefficients)
 elif version == 1: #BIG DSCNN
     print()
 elif version == 2: #dense
     model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
+    model_path, _ = training_and_pruning_model(model, model_path+"_pruned", train_ds, val_ds, OPTIONS.num_coefficients)
 elif version == 3: #cnn
     model = prune_low_magnitude(model, **pruning_params)
-    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, OPTIONS.num_coefficients)
+    model_path, _ = training_and_pruning_model(model, model_path+"_pruned", train_ds, val_ds, OPTIONS.num_coefficients)
 elif version == 4: #masking
     print()
-elif version == 5: #mobilenet alpha 1
+elif version == 5: #mobilenet
     print()
-elif version == 6: #mobilenet alpha 0.5
+elif version == 6: #mobilenetV2
     print()
-elif version == 7: #mobilenetV2 alpha 0.5
+elif version == 7: #my expansion DSCNN
     print()
-elif version == 8: #mobilenetV2 alpha 1
+elif version == 8: #my expansion + residual DSCNN
     print()
 
-_, model_path, _ = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
+_, model_path, _ = generate_tflite(model_path, model_name, test_ds)
 shutil.copyfile(compressed_file, f"./{version}.tflite")
 
 print("End.")
