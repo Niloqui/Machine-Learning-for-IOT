@@ -154,7 +154,6 @@ elif version in ['big']:
 else:
     raise ValueError("Version not existing")
 
-
 train_files = tf.strings.split(tf.io.read_file('../kws_train_split.txt'),sep='\n')[:-1]
 val_files = tf.strings.split(tf.io.read_file('../kws_val_split.txt'),sep='\n')[:-1]
 test_files = tf.strings.split(tf.io.read_file('../kws_test_split.txt'),sep='\n')[:-1]
@@ -208,7 +207,6 @@ elif version in ['big']:
         keras.layers.Dropout(0.5),
         keras.layers.Dense(units=len(LABELS))
     ])
-
 
 
 
@@ -375,10 +373,12 @@ if version in ['little']:
     
     pruned_model_name = model_name + "_pruned"
     pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 8)
-    
-    _, _, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
-    
+
+    _, optimized_file, compressed_file = generate_tflite(pruned_model_path, pruned_model_name, test_ds)
+
     shutil.copyfile(compressed_file, f"./{model_name}.tflite.zlib")
+    shutil.copyfile(optimized_file, f"./{model_name}.tflite")
+
 elif version in ['big']:
     model = keras.models.load_model(trained_model_path)
     
