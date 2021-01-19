@@ -113,14 +113,7 @@ class Processor():
         audio, _ = tf.audio.decode_wav(audio_binary)
         audio = tf.squeeze(audio, axis=1)
         zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
-        audio = tf.concat([audio,zero_padding],0)
-        sample = audio.numpy()
-        
-        # Resampling
-        if self._preprocess['resampling_rate']:
-            sample = signal.resample_poly(sample, 1, 16000 // self._preprocess['resampling_rate'])
-        
-        sample = tf.convert_to_tensor(sample, dtype=tf.float32)
+        sample = tf.concat([audio,zero_padding],0)
         
         # STFT
         stft = tf.signal.stft(sample, self._preprocess['frame_length'], self._preprocess['frame_step'], fft_length=self._preprocess['frame_length'])
@@ -159,13 +152,16 @@ class Processor():
             data_64 = base64.b64encode(data)
             data_string = data_64.decode()
             
+            data_shape_bytes = int.from_bytes(data.shape, byteorder ='big')
+            
             msg = {
                 #'bn': idx,
                 'bn': i,
                 'bt': timestamp,
                 'e': [
                     {'n': 'audio', 'u': '/', 't': 0, 'vd': data_string},
-                    {'n': 'shape', 'u': '/', 't': 0, 'v': list(data.shape)}
+                    {'n': 'shape', 'u': '/', 't': 0, 'v': data_shape_bytes},
+                    {'n': 'shape_len', 'u': '/', 't': 0, 'v': len(data.shape)}
                 ]
             }
             msg = json.dumps(msg)
@@ -184,8 +180,12 @@ class Processor():
         print(f"End publication.")
     
     def wait_all_results(self, i):
-        while self.num_messages_received < i * len(self.models):
+        num_messages_to_receive = i * len(self.models)
+        
+        while self.num_messages_received < num_messages_to_receive:
             t.sleep(1)
+            print(f"Received {self.num_messages_received} messages", end=' ')
+            print(f"over {num_messages_to_receive}.")
 
 
 ### Reading arguments
@@ -198,7 +198,6 @@ datadir = args.datadir
 
 preprocess = {
     'sampling_rate'     :   16000,
-    'resampling_rate'   :   16000,
     'frame_length'      :   640,
     'frame_step'        :   320,
     'num_mel_bins'      :   80,
@@ -207,12 +206,12 @@ preprocess = {
     'num_coefficients'  :   20,
     'mfccs'             :   True
 }
-preprocess['num_frames'] = (preprocess['resampling_rate'] - preprocess['frame_length']) // preprocess['frame_step'] + 1
+preprocess['num_frames'] = (preprocess['sampling_rate'] - preprocess['frame_length']) // preprocess['frame_step'] + 1
 preprocess['num_spectrogram_bins'] = preprocess['frame_length'] // 2 + 1
 preprocess['linear_to_mel_weight_matrix'] = tf.signal.linear_to_mel_weight_matrix(
                                                         preprocess['num_mel_bins'], 
                                                         preprocess['num_spectrogram_bins'], 
-                                                        preprocess['resampling_rate'], 
+                                                        preprocess['sampling_rate'], 
                                                         preprocess['lower_freq'], 
                                                         preprocess['upper_freq'])
 
