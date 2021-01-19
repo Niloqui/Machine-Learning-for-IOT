@@ -2,9 +2,9 @@ import argparse
 import numpy as np
 from subprocess import call
 import tensorflow as tf
-import time
 from scipy import signal
 import os
+import time
 import socket
 import requests
 import json
@@ -30,7 +30,7 @@ parser.add_argument('--bins', type=int, default=40,
         help='number of mel bins')
 parser.add_argument('--coeff', type=int, default=10,
         help='number of MFCCs')
-parser.add_argument('--th', type=float, default=0.25,
+parser.add_argument('--th', type=float, default=0.45,
         help='threshold for score margin')
 args = parser.parse_args()
 
@@ -57,7 +57,7 @@ if not os.path.exists(data_dir):
 # raspberry ip 
 RASPIP = '192.168.1.54'#'198.168.1.60'
 
-model_path = './tflite_models/little_pruned_optimized.tflite' # load small model
+model_path = './little.tflite' # load small model
 
 num_frames = (rate - length) // stride + 1
 num_spectrogram_bins = length // 2 + 1
@@ -83,11 +83,10 @@ labels_file.close()
 labels = np.array(LABELS.split(" "))
 
 
-inf_latency = []
-tot_latency = []
 num = 0
 num_corr = 0
 net_cost = 0
+calls = 0
 for audio_path in test_set:
     num += 1
     if num%100 == 0:
@@ -105,8 +104,7 @@ for audio_path in test_set:
     zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
     audio = tf.concat([audio,zero_padding],0)
     sample = audio.numpy()
-    
-    start = time.time()
+
 
     # Resampling
     sample = signal.resample_poly(sample, 1, 16000 // rate)
@@ -134,7 +132,6 @@ for audio_path in test_set:
     
 
     interpreter.set_tensor(input_details[0]['index'], input_tensor)
-    start_inf = time.time()
     interpreter.invoke()
     output_data = interpreter.get_tensor(output_details[0]['index'])
     probs = tf.nn.softmax(output_data)
@@ -143,6 +140,7 @@ for audio_path in test_set:
     timestamp = int(now.timestamp())
 
     if (np.sort(probs[0])[-1] - np.sort(probs[0])[-2]) <= threshold:
+        calls+=1
 
         body = {
                 'bn': f'http://{RASPIP}/',
@@ -170,13 +168,8 @@ for audio_path in test_set:
         if label == np.argmax(probs[0]):
             num_corr += 1
 
-    end = time.time()
-    tot_latency.append(end - start)
-
-    inf_latency.append(end - start_inf)
-    #time.sleep(0.1)
+    time.sleep(0.1)
     
-print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
-print('Total Latency {:.2f}ms'.format(np.mean(tot_latency)*1000.))
+print('calls to big model {}'.format(calls))
 print(f'Communication cost {net_cost/(2**20)} MB')
 print('Accuracy', num_corr/num)
