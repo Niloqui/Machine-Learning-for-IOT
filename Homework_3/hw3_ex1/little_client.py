@@ -99,7 +99,7 @@ for audio_path in test_set:
     
     audio_binary = tf.io.read_file(audio_path.replace("\n",''))
     audio, _ = tf.audio.decode_wav(audio_binary)
-    enc = tf.io.encode_base64(audio_binary).numpy()
+    enc = tf.io.encode_base64(audio_binary).numpy().decode()
     audio = tf.squeeze(audio, axis=1)
     zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
     audio = tf.concat([audio,zero_padding],0)
