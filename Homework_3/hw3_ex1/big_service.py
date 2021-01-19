@@ -8,7 +8,7 @@ import numpy as np
 class InferenceService(object):
     exposed = True
 
-    def __init__(self, model='./tflite_models/big_not_pruned_basic.tflite'):
+    def __init__(self, model='./big.tflite'):
         self.model = model
         if self.model is not None: 
             self.interpreter = tf.lite.Interpreter(model_path=model)
