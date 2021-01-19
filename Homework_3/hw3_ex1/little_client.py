@@ -12,7 +12,7 @@ import base64
 import datetime
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--server_ip', type=str, default="0.0.0.0",
+parser.add_argument('--server_ip', type=str, default="192.168.1.54",
         help='local adress o')
 parser.add_argument('--server_port', type=int, default=8080,
         help='server port')		
@@ -84,8 +84,8 @@ net_cost = 0
 calls = 0
 for audio_path in test_set:
     num += 1
-    if num%100 == 0:
-        print(num)
+    #if num%100 == 0:
+        #print(num)
 
     parts = tf.strings.split(audio_path, os.path.sep)
     label = parts[-2]
@@ -158,6 +158,6 @@ for audio_path in test_set:
 
     time.sleep(0.1)
     
-print('calls to big model {}'.format(calls))
-print(f'Communication cost {net_cost/(2**20)} MB')
-print('Accuracy', num_corr/num)
+#print('calls to big model {}'.format(calls))
+print(f'Accuracy: {num_corr*100/num}%')
+print(f'Communication Cost: {net_cost/(2**20)} MB')
