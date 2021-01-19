@@ -15,11 +15,10 @@ tflite = tf.lite
 keras = tf.keras
 
 class InferEngine:
-    def __init__(self, version, conf={}, broker="mqtt.eclipseprojects.io", port=1883):
+    def __init__(self, version, broker="mqtt.eclipseprojects.io", port=1883):
         self._isSubscriber = True
         self.broker = broker
         self.port = port
-        self.conf = conf
         
         model = f'{version}.tflite'
         if model is not None:
@@ -84,13 +83,19 @@ class InferEngine:
                     'bt': timestamp,
                     'e': [
                         {'n': 'audio', 'u': '/', 't': 0, 'vd': data_string},
-                        {'n': 'shape', 'u': '/', 't': 0, 'v': list(data.shape)}
+                        {'n': 'shape', 'u': '/', 't': 0, 'v': data_shape_bytes},
+                        {'n': 'shape_len', 'u': '/', 't': 0, 'v': len(data.shape)}
                     ]
                 }
         '''
         msg = json.loads(data)
         audio_id = msg['bn']
+        
+        shape_len = msg['e'][2]['v']
+        
         shape = msg['e'][1]['v']
+        shape = tuple(shape.to_bytes(shape_len, byteorder ='big'))
+        
         audio = msg['e'][0]['vd']
         audio = base64.b64decode(audio)
         audio = tf.io.decode_raw(audio, tf.float32)
@@ -105,16 +110,12 @@ class InferEngine:
         output_data = output_data[0]
         nump_sorted = np.argsort(output_data)
         label = nump_sorted[-1]
+        label = int(str(label))
         second = nump_sorted[-2]
+        trust_score = output_data[label] - output_data[second]
+        trust_score = float(str(trust_score))
         
-        score_margin = output_data[label] - output_data[second]
-        try:
-            trust_score = score_margin * self.conf[label]
-        except:
-            trust_score = score_margin * 1.0
-        
-        #print(f"Predicted label {label}: score margin {score_margin}, trust score: {trust_score}")
-        msg = {'bn': audio_id, "label": int(str(label)), "ts": trust_score}
+        msg = {'bn': audio_id, "label": label, "ts": trust_score}
         msg = json.dumps(msg)
         print(msg)
         self.myPublish(pubtopic, msg)
