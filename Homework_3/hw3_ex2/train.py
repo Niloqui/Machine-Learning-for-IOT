@@ -41,7 +41,6 @@ labels_file = open("./labels.txt", "r")
 LABELS = labels_file.read()
 LABELS = np.array(LABELS.split(" "))
 labels_file.close()
-print(LABELS)
 
 def my_resample(audio, downsample):
     audio = signal.resample_poly(audio, 1, downsample)
@@ -49,7 +48,7 @@ def my_resample(audio, downsample):
     return audio
 
 class SignalGenerator:
-    def __init__(self, labels, sampling_rate=16000, resampling_rate=None, frame_length=1920 , frame_step=960,
+    def __init__(self, labels, sampling_rate=16000, frame_length=1920 , frame_step=960,
                 num_mel_bins=40, lower_freq=20, upper_freq=48000, num_coefficients=10, mfccs=False):
         self.frame_length = frame_length
         self.frame_step = frame_step
@@ -59,17 +58,10 @@ class SignalGenerator:
         self.labels = labels
         self.sampling_rate = sampling_rate
         
-        if resampling_rate is None:
-            self.resampling_rate = sample_rate
-        else:
-            self.resampling_rate = resampling_rate
-        
-        self.downsampling = int(self.sampling_rate / self.resampling_rate)
-    
         if mfccs:
             num_spectrogram_bins = (frame_length) // 2 + 1
             self.l2mel_matrix = tf.signal.linear_to_mel_weight_matrix(
-                    self.num_mel_bins, num_spectrogram_bins, self.resampling_rate,
+                    self.num_mel_bins, num_spectrogram_bins, self.sampling_rate,
                     lower_freq, upper_freq)
             self.preprocess = self.preprocess_with_mfcc
         else:
@@ -81,17 +73,13 @@ class SignalGenerator:
         label_id = tf.argmax(label == self.labels)
         audio_binary = tf.io.read_file(file_path)
         audio, _ = tf.audio.decode_wav(audio_binary)
-        
-        if self.resampling_rate != self.sampling_rate:
-            audio = tf.numpy_function(my_resample, [audio, self.downsampling], tf.float32)
-        
         audio = tf.squeeze(audio, axis=1)
         return audio, label_id
     
     def pad(self, audio):
-        zero_padding = tf.zeros([self.resampling_rate] - tf.shape(audio), dtype=tf.float32)
+        zero_padding = tf.zeros([self.sampling_rate] - tf.shape(audio), dtype=tf.float32)
         audio = tf.concat([audio,zero_padding],0)
-        audio.set_shape([self.resampling_rate])
+        audio.set_shape([self.sampling_rate])
         return audio
     
     def get_spectrogram(self, audio):
@@ -135,27 +123,16 @@ class SignalGenerator:
 
 
 OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80}
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80,
+        'num_coefficients': 20}
 stride = [2, 1]
-
-if version in [1, 2]:
-    OPTIONS['num_coefficients'] = 10
-elif version in [3, 4, 5]:
-    OPTIONS['num_coefficients'] = 20
-else:
-    raise ValueError("Model not found.")
-
-OPTIONS['num_coefficients'] = 20
-
-
-#sample_rate = 8000
 sample_rate = 16000
 
 train_files = tf.strings.split(tf.io.read_file('./kws_train_split.txt'),sep='\n')[:-1]
 val_files = tf.strings.split(tf.io.read_file('./kws_val_split.txt'),sep='\n')[:-1]
 test_files = tf.strings.split(tf.io.read_file('./kws_test_split.txt'),sep='\n')[:-1]
 
-generator = SignalGenerator(LABELS, 16000, sample_rate, **OPTIONS)
+generator = SignalGenerator(LABELS, sample_rate, **OPTIONS)
 train_ds = generator.make_dataset(train_files, True)
 val_ds = generator.make_dataset(val_files, False)
 test_ds = generator.make_dataset(test_files, False)
@@ -310,6 +287,8 @@ elif version == 5: # DSCNN inc
     x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
     x = keras.layers.Softmax()(x)
     model = keras.Model(inputs=input, outputs=x, name='DSCNN_inc')
+else:
+    raise ValueError("Model not found.")
 
 
 ### Training for the first time
@@ -426,9 +405,9 @@ def training_and_pruning_model(model, model_name, train_ds, val_ds, num_coeff):
     return stripped_model_folder, callback_folder_name
 
 
-if version in [1, 3]:
+if version in [1]:
     _, accuracy = generate_tflite(trained_model_path, model_name, test_ds)
-elif version in [2, 4, 5]:
+elif version in [2, 3, 4, 5]:
     model = keras.models.load_model(trained_model_path)
     pruning_params = {
         'pruning_schedule' : tfmot.sparsity.keras.PolynomialDecay(
