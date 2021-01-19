@@ -15,120 +15,127 @@ tflite = tf.lite
 keras = tf.keras
 
 class InferEngine:
-    def __init__(self, model, conf={}, broker="mqtt.eclipseprojects.io", port=1883):
+    def __init__(self, version, conf={}, broker="mqtt.eclipseprojects.io", port=1883):
+        self._isSubscriber = True
         self.broker = broker
         self.port = port
         self.conf = conf
+        
+        model = f'{version}.tflite'
         if model is not None:
             self.model = model
             self.interpreter = tf.lite.Interpreter(model_path=model)
             self.interpreter.allocate_tensors()
             self.input_details = self.interpreter.get_input_details()
-
-        self.clientID = "inference-"+model
-        self._sub_topic = "/+/data/+" #from any publisher any audio preprocessed
-        self._pub_topic = f"/{self.clientID}/data/" #this model version
-        self._isSubscriber = True
-
-        # create an instance of paho.mqtt.client
+            self.output_details = self.interpreter.get_output_details()
+        
+        self.clientID = "inference-" + model
+        
+        self._sub_topic = "/PoliTO/ML4IOT/Group2/+/data/"
+        self._pub_topic_base = f"/PoliTO/ML4IOT/Group2/+/results/{version}"
+        
+        # Create an instance of paho.mqtt.client
         self._paho_mqtt = PahoMQTT.Client(self.clientID, False) 
-
-        # register the callback
+        
+        # Register the callback
         self._paho_mqtt.on_connect = self.myOnConnect
         self._paho_mqtt.on_message = self.myOnMessageReceived
         self._paho_mqtt.notify = self.myNotify
-
+    
     def myNotify(self, topic, msg):
         print(topic)
-
+    
     def myOnConnect(self, paho_mqtt, userdata, flags, rc):
         print("Connected to %s with result code: %d" % (self.broker, rc))
-
-    def myOnMessageReceived(self, paho_mqtt , userdata, msg):
-        # A new message is received
+    
+    def myOnMessageReceived(self, paho_mqtt, userdata, msg):
         self._paho_mqtt.notify(msg.topic, msg.payload)
-        print(f'received {msg.topic} from {paho_mqtt}-{userdata}')
-        if(msg.topic.endswith('stop')):
-            self._paho_mqtt.unsubscribe(self._sub_topic)
-            return
-        self.run_inference(msg.topic,msg.payload)
-
-
-    def myPublish (self, topic, msg):
-        # if needed, you can do some computation or error-check before publishing
-        topic = "/".join(self._pub_topic,topic)
-        print("publishing '%s' with topic '%s'" % (msg, topic))
-        # publish a message with a certain topic
+        self.run_inference(msg.topic, msg.payload)
+    
+    def myPublish(self, topic, msg):
         self._paho_mqtt.publish(topic, msg, 2)
-
-    def mySubscribe (self, topic):
-        # if needed, you can do some computation or error-check before subscribing
-        print("subscribing to %s" % (topic))
-        # subscribe for a topic
+    
+    def mySubscribe(self, topic):
+        print(f"Subscribing to {topic}")
         self._paho_mqtt.subscribe(topic, 2)
-
-        # just to remember that it works also as a subscriber
-        self._isSubscriber = True
-        self._sub_topic = topic
-        print("done")
-
+        print("Subscription complete")
+    
+    
     def start(self):
-        #manage connection to broker
-        print("connecting to:",self.broker,self.port)
-        self._paho_mqtt.connect(self.broker , self.port)
+        print("Connecting to:", self.broker, self.port)
+        self._paho_mqtt.connect(self.broker, self.port)
         self._paho_mqtt.loop_start()
-        self.mySubscribe(self._sub_topic)
-        while (input()!=''):
-            time.sleep(1)
-        self.stop()
         
-
+        self.mySubscribe(self._sub_topic)
+    
     def stop (self):
         if (self._isSubscriber):
-            # remember to unsuscribe if it is working also as subscriber 
             self._paho_mqtt.unsubscribe(self._sub_topic)
-
+        
         self._paho_mqtt.loop_stop()
-        self._paho_mqtt.disconnect() 
-              
-    def run_inference(self,topic,data):
-        pubtopic = self._pub_topic + topic.split("/")[-1]
-        msg = json.load(data)
-        print(msg)
-        data = base64.decodebytes(data)
-        input_tensor = tf.io.decode_raw(data,tf.float32)
+        self._paho_mqtt.disconnect()
+     
+    def run_inference(self, topic, data):
+        sensorID = topic.split("/")[4]
+        pubtopic = self._pub_topic_base.replace('+', sensorID)
+        
+        ''' msg = {
+                    'bn': i,
+                    'bt': timestamp,
+                    'e': [
+                        {'n': 'audio', 'u': '/', 't': 0, 'vd': data_string},
+                        {'n': 'shape', 'u': '/', 't': 0, 'v': list(data.shape)}
+                    ]
+                }
+        '''
+        msg = json.loads(data)
+        audio_id = msg['bn']
+        shape = msg['e'][1]['v']
+        audio = msg['e'][0]['vd']
+        audio = base64.b64decode(audio)
+        audio = tf.io.decode_raw(audio, tf.float32)
+        audio = tf.reshape(audio, shape)
+        
+        input_tensor = audio
         if self.interpreter:
             self.interpreter.set_tensor(self.input_details[0]['index'], input_tensor)
-            start_inf = time.time()
             self.interpreter.invoke()
-            output_data = interpreter.get_tensor(output_details[0]['index'])
-        print(output_data)
-        label, second = np.argsort(output_data)
-        score_margin = output_data[label] - output_data[second]
-        trust_score = score_margin * self.conf[label]
+            output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
         
-        end = time.time()
-        tot_latency.append(end - start)
-
-        if args.model is None:
-            start_inf = end
-
-        inf_latency.append(end - start_inf)
-        time.sleep(0.1)
-
-        print('Inference Latency {:.2f}ms'.format(np.mean(inf_latency)*1000.))
-        print(f"Predicted label {label}: confidence {self.conf[label]}, score margin {scm}, trust score: {trust_score}")
-        msg = {"label":label,"ts":trust_score}
-        self.myPublish(pubtopic,msg)
+        output_data = output_data[0]
+        nump_sorted = np.argsort(output_data)
+        label = nump_sorted[-1]
+        second = nump_sorted[-2]
+        
+        score_margin = output_data[label] - output_data[second]
+        try:
+            trust_score = score_margin * self.conf[label]
+        except:
+            trust_score = score_margin * 1.0
+        
+        #print(f"Predicted label {label}: score margin {score_margin}, trust score: {trust_score}")
+        msg = {'bn': audio_id, "label": int(str(label)), "ts": trust_score}
+        msg = json.dumps(msg)
+        print(msg)
+        self.myPublish(pubtopic, msg)
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--version', default=0, type=int, help='Model version')
+parser.add_argument('--version', default='1', type=str, help='Model version')
 args = parser.parse_args()
 version = args.version
-model_name = f'{version}.tflite'
-inf = InferEngine(model_name,broker='192.168.1.195')
+#model_name = f'{version}.tflite'
+
+#inf = InferEngine(model_name, broker='192.168.1.195')
+inf = InferEngine(version)
+
 try:
     inf.start()
+    
+    while (input()!=''):
+        pass
+    
+    inf.stop()
+    
 except Exception as e:
     print(e)
