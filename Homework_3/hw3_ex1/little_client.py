@@ -12,16 +12,12 @@ import base64
 import datetime
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--server_ip', type=str, default="192.168.1.54",
+parser.add_argument('--server_ip', type=str, default="0.0.0.0",
         help='local adress o')
 parser.add_argument('--server_port', type=int, default=8080,
         help='server port')		
 parser.add_argument('--rate', type=int, default=16000,
         help='sampling rate after resampling')
-parser.add_argument('--mfcc', action='store_true',
-        help='use mfcc')
-parser.add_argument('--resize', type=int, default=32,
-        help='input size after resize')
 parser.add_argument('--length', type=int, default=640,
         help='stft window legnth in number of samples')
 parser.add_argument('--stride', type=int, default=320,
@@ -30,7 +26,7 @@ parser.add_argument('--bins', type=int, default=40,
         help='number of mel bins')
 parser.add_argument('--coeff', type=int, default=10,
         help='number of MFCCs')
-parser.add_argument('--th', type=float, default=0.45,
+parser.add_argument('--th', type=float, default=0.40,
         help='threshold for score margin')
 args = parser.parse_args()
 
@@ -41,7 +37,6 @@ call('sudo sh -c "echo performance > /sys/devices/system/cpu/cpufreq/policy0/sca
 rate = args.rate
 length = args.length
 stride = args.stride
-resize = args.resize
 num_mel_bins = args.bins
 num_coefficients = args.coeff
 threshold = args.th
@@ -99,37 +94,30 @@ for audio_path in test_set:
     
     audio_binary = tf.io.read_file(audio_path.replace("\n",''))
     audio, _ = tf.audio.decode_wav(audio_binary)
-    enc = tf.io.encode_base64(audio_binary).numpy().decode()
+    audio_string = tf.io.encode_base64(audio_binary).numpy().decode()
     audio = tf.squeeze(audio, axis=1)
     zero_padding = tf.zeros([16000] - tf.shape(audio), dtype=tf.float32)
     audio = tf.concat([audio,zero_padding],0)
-    sample = audio.numpy()
+    #sample = audio.numpy()
 
 
     # Resampling
-    sample = signal.resample_poly(sample, 1, 16000 // rate)
-    sample = tf.convert_to_tensor(sample, dtype=tf.float32)
+    #sample = signal.resample_poly(sample, 1, 16000 // rate)
+    #sample = tf.convert_to_tensor(sample, dtype=tf.float32)
 
     # STFT
-    stft = tf.signal.stft(sample, length, stride,
+    stft = tf.signal.stft(audio, length, stride,
             fft_length=length)
     spectrogram = tf.abs(stft)
-    
-    
-    if args.mfcc is False and args.resize > 0:
-        # Resize (optional)
-        spectrogram = tf.reshape(spectrogram, [1, num_frames, num_spectrogram_bins, 1])
-        spectrogram = tf.image.resize(spectrogram, [resize, resize])
-        input_tensor = spectrogram
-    else:
-        # MFCC (optional)
-        mel_spectrogram = tf.tensordot(spectrogram, linear_to_mel_weight_matrix, 1)
-        log_mel_spectrogram = tf.math.log(mel_spectrogram + 1.e-6)
-        mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)
-        mfccs = mfccs[..., :num_coefficients]
-        mfccs = tf.reshape(mfccs, [1, num_frames, num_coefficients, 1])
-        input_tensor = mfccs
-    
+
+    # MFCC
+    mel_spectrogram = tf.tensordot(spectrogram, linear_to_mel_weight_matrix, 1)
+    log_mel_spectrogram = tf.math.log(mel_spectrogram + 1.e-6)
+    mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrogram)
+    mfccs = mfccs[..., :num_coefficients]
+    mfccs = tf.reshape(mfccs, [1, num_frames, num_coefficients, 1])
+    input_tensor = mfccs
+
 
     interpreter.set_tensor(input_details[0]['index'], input_tensor)
     interpreter.invoke()
@@ -145,7 +133,7 @@ for audio_path in test_set:
         body = {
                 'bn': f'http://{RASPIP}/',
                 'bt': timestamp,
-                'e': [{'n': 'audio', 'u': '/', 't': 0, 'vd': enc}]
+                'e': [{'n': 'audio', 'u': '/', 't': 0, 'vd': audio_string}]
                 }
 
         url = f'http://{args.server_ip}:{args.server_port}/'
