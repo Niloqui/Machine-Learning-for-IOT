@@ -140,7 +140,7 @@ VERSION_LITTLE_OPTIONS = {'frame_length': 320, 'frame_step': 160, 'mfccs': True,
 # kws_inference.py --model little.tflite --length 320 --stride 160 --mfcc --rate 8000
 
 VERSION_BIG_OPTIONS = {'frame_length': 640, 'frame_step': 320, 'mfccs': True,
-        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 80, 'num_coefficients': 10}
+        'lower_freq': 20, 'upper_freq': 4000, 'num_mel_bins': 40, 'num_coefficients': 10}
 # kws_inference.py --model big.tflite --mfcc
 
 stride = [2, 1]
@@ -171,40 +171,38 @@ if version in ['little']:
     model = keras.Sequential([
             keras.layers.Conv2D(filters=128, kernel_size=[3, 3], strides=stride, use_bias=False),
             keras.layers.BatchNormalization(momentum=0.1),
-            keras.layers.Dropout(0.1),
             keras.layers.ReLU(),
             keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
             keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
             keras.layers.BatchNormalization(momentum=0.1),
-            keras.layers.Dropout(0.1),
             keras.layers.ReLU(),
             keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
             keras.layers.Conv2D(filters=128, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
             keras.layers.BatchNormalization(momentum=0.1),
-            keras.layers.Dropout(0.1),
             keras.layers.ReLU(),
             keras.layers.GlobalAveragePooling2D(),
-            keras.layers.Dropout(0.5),
+            keras.layers.Dropout(0.25),
             keras.layers.Dense(units=len(LABELS))
     ])
 elif version in ['big']:
     model = keras.Sequential([
         keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
         keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
         keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
+        keras.layers.ReLU(),
+        keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
+        keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
+        keras.layers.BatchNormalization(momentum=0.1),
         keras.layers.ReLU(),
         keras.layers.GlobalAveragePooling2D(),
-        keras.layers.Dropout(0.5),
+        keras.layers.Dropout(0.25),
         keras.layers.Dense(units=len(LABELS))
     ])
 
@@ -307,7 +305,6 @@ def generate_tflite(model_folder, output_name, test_ds):
         f.write(tflite_model)
     tflb_size = os.path.getsize(basic_file)
     
-    
     # Optimized file
     converter.optimizations = [tflite.Optimize.DEFAULT]
     tflite_quant_model = converter.convert()
@@ -317,7 +314,6 @@ def generate_tflite(model_folder, output_name, test_ds):
     
     tflo_size = os.path.getsize(optimized_file)
     
-    
     # Compressed file
     tflite_compressed = zlib.compress(tflite_quant_model)
     
@@ -326,34 +322,35 @@ def generate_tflite(model_folder, output_name, test_ds):
             
     tflc_size=os.path.getsize(compressed_file)
     
+    for model_file in [basic_file, optimized_file]:
+        # Evaluating the model
+        interpreter = tflite.Interpreter(model_path = model_file)
+        interpreter.allocate_tensors()
     
-    # Evaluating the model
-    interpreter = tflite.Interpreter(model_path = optimized_file)
-    interpreter.allocate_tensors()
-    
-    # Get input and output tensors
-    input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-    
-    num_corr = 0
-    num = 0
-    start = t.time()
-    for input_data, label in test_ds:
-        interpreter.set_tensor(input_details[0]['index'], input_data)
-        interpreter.invoke()
-        output_data = np.argmax(interpreter.get_tensor(output_details[0]['index']))
-        
-        if label.numpy()[0] == output_data:
-            num_corr += 1
-        num += 1
-    
-    end = t.time() - start
-    
-    # Final outputs
-    print(f'Size of basic model: {tflb_size/1024} kB')
-    print(f'Size of optimized model: {tflo_size/1024} kB')
-    print(f'Compressed: {tflc_size/1024} kB')
-    print(f'Accuracy: {num_corr/num}\nTime: {end} ms\n\n')
+        # Get input and output tensors
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+
+        num_corr = 0
+        num = 0
+        start = t.time()
+        for input_data, label in test_ds:
+            interpreter.set_tensor(input_details[0]['index'], input_data)
+            interpreter.invoke()
+            output_data = np.argmax(interpreter.get_tensor(output_details[0]['index']))
+            
+            if label.numpy()[0] == output_data:
+                num_corr += 1
+            num += 1
+
+        end = t.time() - start
+
+        # Final outputs
+        print(f'File is {model_file}')
+        print(f'Size of basic model: {tflb_size/1024} kB')
+        print(f'Size of optimized model: {tflo_size/1024} kB')
+        print(f'Compressed: {tflc_size/1024} kB')
+        print(f'Accuracy: {num_corr/num}\nTime: {end} ms\n\n')
     
     return basic_file, optimized_file, compressed_file
 
@@ -381,10 +378,26 @@ if version in ['little']:
 
 elif version in ['big']:
     model = keras.models.load_model(trained_model_path)
+
+    '''pruning_params = {
+        'pruning_schedule': tfmot.sparsity.keras.PolynomialDecay(
+            initial_sparsity=0.2,
+            final_sparsity=0.6,
+            begin_step=len(train_ds) * 5,
+            end_step=len(train_ds) * 15
+        )
+    }
+
+    prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
+    model = prune_low_magnitude(model, **pruning_params)
+
+    pruned_model_name = model_name + "_pruned"
+    pruned_model_path, _ = training_and_pruning_model(model, pruned_model_name, train_ds, val_ds, 8)'''
+
     
-    _, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
+    basic_file, optimized_file, _ = generate_tflite(trained_model_path, model_name + "_not_pruned", test_ds)
     
-    shutil.copyfile(optimized_file, f"./{model_name}.tflite")
+    shutil.copyfile(basic_file, f"./{model_name}.tflite")
 
 
 
