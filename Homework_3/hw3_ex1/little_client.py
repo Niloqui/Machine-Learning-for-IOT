@@ -148,7 +148,7 @@ for audio_path in test_set:
             print('Error')
             print(r.text)
     
-        net_cost += len(enc)
+        net_cost += len(audio_string)
         if labels[label] == prediction:
             num_corr += 1
 
