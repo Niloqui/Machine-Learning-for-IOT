@@ -190,10 +190,18 @@ class Processor():
 ### Reading arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--id', default="id1234", type=str, help='id of the speech processor')
-parser.add_argument('--datadir', default="../", type=str, help='path to dataset definition')
+parser.add_argument('--maindir', default="./", type=str, help='path to dataset, label.txt and test splits')
 args = parser.parse_args()
 clientID = args.id
-datadir = args.datadir
+maindir = args.maindir
+
+data_dir = os.path.join(maindir,'data', 'mini_speech_commands')
+if not os.path.exists(data_dir):
+    zip_path = keras.utils.get_file(
+        origin='http://storage.googleapis.com/download.tensorflow.org/data/mini_speech_commands.zip',
+        fname='mini_speech_commands.zip',
+        extract=True,
+        cache_dir='.', cache_subdir='data')
 
 preprocess = {
     'sampling_rate'     :   16000,
