@@ -223,7 +223,7 @@ preprocess['linear_to_mel_weight_matrix'] = tf.signal.linear_to_mel_weight_matri
                                                         preprocess['upper_freq'])
 
 
-proc = Processor(clientID, datadir, preprocess)
+proc = Processor(clientID, maindir, preprocess)
 proc.start()
 proc.read()
 proc.wait_all_results(proc.num_audio)
