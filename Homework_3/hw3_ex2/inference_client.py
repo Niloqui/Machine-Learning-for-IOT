@@ -1,18 +1,8 @@
-import paho.mqtt.client as PahoMQTT
 import argparse
-import os
-import shutil
-import time as t
 import json
-import numpy as np
-import pandas as pd
-import tensorflow_model_optimization as tfmot
-import tensorflow as tf
-import time
 import base64
-#import tensorflow.lite as tflite
-tflite = tf.lite
-keras = tf.keras
+import paho.mqtt.client as PahoMQTT
+import tensorflow as tf
 
 class InferEngine:
     def __init__(self, version, broker="mqtt.eclipseprojects.io", port=1883):
@@ -20,15 +10,13 @@ class InferEngine:
         self.broker = broker
         self.port = port
         
-        model = f'{version}.tflite'
-        if model is not None:
-            self.model = model
-            self.interpreter = tf.lite.Interpreter(model_path=model)
-            self.interpreter.allocate_tensors()
-            self.input_details = self.interpreter.get_input_details()
-            self.output_details = self.interpreter.get_output_details()
+        self.model = f'{version}.tflite'
+        self.interpreter = tf.lite.Interpreter(model_path=self.model)
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
         
-        self.clientID = "inference-" + model
+        self.clientID = "inference-" + self.model
         
         self._sub_topic = "/PoliTO/ML4IOT/Group2/+/data/"
         self._pub_topic_base = f"/PoliTO/ML4IOT/Group2/+/results/{version}"
@@ -93,7 +81,7 @@ class InferEngine:
         
         shape_len = msg['e'][2]['v']
         
-        shape = msg['e'][1]['v']
+        shape = msg['e'][1]['vd']
         shape = tuple(shape.to_bytes(shape_len, byteorder ='big'))
         
         audio = msg['e'][0]['vd']
@@ -102,20 +90,22 @@ class InferEngine:
         audio = tf.reshape(audio, shape)
         
         input_tensor = audio
-        if self.interpreter:
-            self.interpreter.set_tensor(self.input_details[0]['index'], input_tensor)
-            self.interpreter.invoke()
-            output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+        self.interpreter.set_tensor(self.input_details[0]['index'], input_tensor)
+        self.interpreter.invoke()
+        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
         
-        output_data = output_data[0]
+        '''
         nump_sorted = np.argsort(output_data)
         label = nump_sorted[-1]
         label = int(str(label))
         second = nump_sorted[-2]
         trust_score = output_data[label] - output_data[second]
         trust_score = float(str(trust_score))
+        '''
+        output_data_64 = base64.b64encode(output_data)
+        output_data_string = output_data_64.decode()
         
-        msg = {'bn': audio_id, "label": label, "ts": trust_score}
+        msg = {'bn': audio_id, "data": output_data_string}
         msg = json.dumps(msg)
         print(msg)
         self.myPublish(pubtopic, msg)
@@ -125,7 +115,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--version', default='1', type=str, help='Model version')
 args = parser.parse_args()
 version = args.version
-#model_name = f'{version}.tflite'
 
 #inf = InferEngine(model_name, broker='192.168.1.195')
 inf = InferEngine(version)
