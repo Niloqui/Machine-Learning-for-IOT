@@ -1,18 +1,13 @@
-import paho.mqtt.client as PahoMQTT
 import argparse
 import os
-import shutil
 import time as t
 import json
+import datetime
+import base64
+import paho.mqtt.client as PahoMQTT
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import datetime
-from scipy import signal
-import base64
-#import tensorflow.lite as tflite
-tflite = tf.lite
-keras = tf.keras
 
 class Processor():
     def __init__(self, clientID, dataf, preprocess, broker="mqtt.eclipseprojects.io", port=1883):
@@ -22,7 +17,7 @@ class Processor():
         self.port = port
         
         self._pub_topic = f"/PoliTO/ML4IOT/Group2/{clientID}/data/"
-        self._sub_topic = f"/PoliTO/ML4IOT/Group2/{clientID}/results/#"
+        self._sub_topic = f"/PoliTO/ML4IOT/Group2/{clientID}/results/+"
         
         self._records = pd.DataFrame(columns = ['audio', 'model', 'label', 'score'])
         self._test_ds = os.path.join(dataf, "kws_test_split.txt")
@@ -48,8 +43,11 @@ class Processor():
         print(f"User data: {userdata}, Flags: {flags}")
     
     def myOnMessageReceived(self, paho_mqtt, userdata, msg):
+        self.store_record(msg.topic, msg.payload)
+        '''
         if msg.topic != self._pub_topic:
             self.store_record(msg.topic, msg.payload)
+        '''
     
     def myPublish (self, msg):
         self._paho_mqtt.publish(self._pub_topic, msg, 2)
@@ -76,11 +74,21 @@ class Processor():
         tops = str(topic).split(os.path.sep)
         data = json.loads(data)
         
+        network_data = base64.b64decode(data['data'])
+        network_data = tf.io.decode_raw(network_data, tf.float32)
+        
+        nump_sorted = np.argsort(network_data)
+        label = nump_sorted[-1]
+        #label = int(str(label))
+        second = nump_sorted[-2]
+        trust_score = network_data[label] - network_data[second]
+        #trust_score = float(str(trust_score))
+        
         row = {
             'model': tops[-1],
             'audio': data['bn'],
-            'label': data['label'],
-            'score': data['ts']
+            'label': label,
+            'score': trust_score
         }
         
         self.models.add(tops[-1])
@@ -126,8 +134,6 @@ class Processor():
         mfccs = tf.reshape(mfccs, [1, self._preprocess['num_frames'], self._preprocess['num_coefficients'], 1])
         data = mfccs
         
-        #data = {'data': base64.b64encode(data), 'shape': data.shape}
-        #data = json.dumps(data)
         return idx, data, label
     
     
@@ -154,12 +160,11 @@ class Processor():
             data_shape_bytes = int.from_bytes(data.shape, byteorder ='big')
             
             msg = {
-                #'bn': idx,
                 'bn': i,
                 'bt': timestamp,
                 'e': [
                     {'n': 'audio', 'u': '/', 't': 0, 'vd': data_string},
-                    {'n': 'shape', 'u': '/', 't': 0, 'v': data_shape_bytes},
+                    {'n': 'shape', 'u': '/', 't': 0, 'vd': data_shape_bytes},
                     {'n': 'shape_len', 'u': '/', 't': 0, 'v': len(data.shape)}
                 ]
             }
@@ -189,15 +194,15 @@ class Processor():
 
 ### Reading arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--id', default="id1234", type=str, help='id of the speech processor')
-parser.add_argument('--maindir', default="./", type=str, help='path to dataset, label.txt and test splits')
+parser.add_argument('--id', default="id1234", type=str, help='ID of the speech processor')
+parser.add_argument('--maindir', default="./", type=str, help='Path to dataset, label.txt and test splits')
 args = parser.parse_args()
 clientID = args.id
 maindir = args.maindir
 
 data_dir = os.path.join(maindir,'data', 'mini_speech_commands')
 if not os.path.exists(data_dir):
-    zip_path = keras.utils.get_file(
+    zip_path = tf.keras.utils.get_file(
         origin='http://storage.googleapis.com/download.tensorflow.org/data/mini_speech_commands.zip',
         fname='mini_speech_commands.zip',
         extract=True,
