@@ -37,7 +37,7 @@ if not os.path.exists(data_dir):
         extract=True,
         cache_dir='.', cache_subdir='data')
 
-labels_file = open("./labels.txt", "r")
+labels_file = open("labels.txt", "r")
 LABELS = labels_file.read()
 LABELS = np.array(LABELS.split(" "))
 labels_file.close()
@@ -184,7 +184,7 @@ def parallel_block(input, filters):
     x2 = keras.layers.BatchNormalization()(x2)
     x2 = keras.layers.Dropout(0.1)(x2)
     
-    # add 
+    # add
     x = keras.layers.Add()([x2, x])
     x = keras.layers.ReLU()(x)
     
@@ -193,7 +193,6 @@ def parallel_block(input, filters):
 def inception_block(input, filters):
     s = 1
     f1 = filters
-    
     
     x_init = keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False)(input)
     
@@ -216,37 +215,21 @@ if version == 1: # DSCNN
     model = keras.Sequential([
         keras.layers.Conv2D(filters=512, kernel_size=[3, 3], strides=stride, use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
         keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.DepthwiseConv2D(kernel_size=[3, 3], strides=[1, 1], use_bias=False),
         keras.layers.Conv2D(filters=512, kernel_size=[1, 1], strides=[1, 1], use_bias=False),
         keras.layers.BatchNormalization(momentum=0.1),
-        keras.layers.Dropout(0.1),
         keras.layers.ReLU(),
         keras.layers.GlobalAveragePooling2D(),
         keras.layers.Dropout(0.5),
         keras.layers.Dense(units=len(LABELS)),
         keras.layers.Softmax()
     ])
-elif version == 2: # DSCNN sub
-    input = keras.Input(shape=(int(sample_rate/OPTIONS['frame_step']) - 1, OPTIONS['num_coefficients'], 1))
-    x = input_layer(input,32)
-    x = exp_block(x,128)
-    x = exp_block(x,256)
-    x = parallel_block(x,512) #single res block accuracy on test 0.45 on training 0.993
-    x = exp_block(x,512)
-    x = keras.layers.GlobalAveragePooling2D()(x)
-    x = keras.layers.Flatten()(x)
-    x = keras.layers.Dropout(0.5)(x)
-    x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x)
-    x = keras.layers.Softmax()(x)
-    model = keras.Model(inputs=input, outputs=x, name='DSCNN_sub')
-elif version == 3: # DSCNN sub redux
+elif version == 2: # DSCNN sub redux
     input = keras.Input(shape=(int(sample_rate/OPTIONS['frame_step']) - 1, OPTIONS['num_coefficients'], 1))
     x = in_block(input,32)
     x = exp_block(x,64)
@@ -260,7 +243,7 @@ elif version == 3: # DSCNN sub redux
     x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x)
     x = keras.layers.Softmax()(x)
     model = keras.Model(inputs=input, outputs=x, name='DSCNN_sub_redux')
-elif version == 4: # DSCNN sub super redux
+elif version == 3: # DSCNN sub super redux
     input = keras.Input(shape=(int(sample_rate/OPTIONS['frame_step']) - 1, OPTIONS['num_coefficients'], 1))
     x = in_block(input,32)
     x = exp_block(x,64)
@@ -272,7 +255,7 @@ elif version == 4: # DSCNN sub super redux
     x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x)
     x = keras.layers.Softmax()(x)
     model = keras.Model(inputs=input, outputs=x, name='DSCNN_sub_super_redux')
-elif version == 5: # DSCNN inc
+elif version == 4: # DSCNN inc
     input = keras.Input(shape=(int(sample_rate/OPTIONS['frame_step']) - 1, OPTIONS['num_coefficients'], 1))
     x = in_block(input,32)
     x = exp_block(x,64)
@@ -284,9 +267,23 @@ elif version == 5: # DSCNN inc
     x = keras.layers.GlobalAveragePooling2D()(x)
     x = keras.layers.Flatten()(x)
     x = keras.layers.Dropout(0.5)(x)
-    x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x) 
+    x = keras.layers.Dense(len(LABELS), kernel_initializer='he_normal')(x)
     x = keras.layers.Softmax()(x)
     model = keras.Model(inputs=input, outputs=x, name='DSCNN_inc')
+elif version == 5: # DSCNN exp
+    input = keras.Input(shape=(int(sample_rate/OPTIONS['frame_step']) - 1, OPTIONS['num_coefficients'], 1))
+    x = input_layer(input, 32)
+    x = exp_block(x, 64)
+    x = exp_block(x, 128)
+    x = exp_block(x, 256)
+    x = exp_block(x, 256)
+    x = exp_block(x, 256)
+    x = exp_block(x, 256)
+    x = keras.layers.GlobalAveragePooling2D()(x)
+    x = keras.layers.Dropout(0.5)(x)
+    x = keras.layers.Dense(units=len(LABELS))(x)
+    x = keras.layers.Softmax()(x)
+    model = keras.Model(inputs=input, outputs=x, name='DSCNN_exp')
 else:
     raise ValueError("Model not found.")
 
